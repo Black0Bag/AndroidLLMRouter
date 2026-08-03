@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LLM 路由器</string>
+    <string name="app_subtitle">大模型 API 智能路由网关</string>
+
+    <!-- 首页 -->
+    <string name="home_title">路由控制台</string>
+    <string name="start_service">启动路由服务</string>
+    <string name="stop_service">停止路由服务</string>
+    <string name="service_running">路由服务运行中</string>
+    <string name="service_stopped">路由服务已停止</string>
+    <string name="api_endpoint">API 端点</string>
+    <string name="copy_endpoint">复制端点地址</string>
+    <string name="endpoint_copied">已复制到剪贴板</string>
+    <string name="channels">渠道管理</string>
+    <string name="settings">设置</string>
+    <string name="route_status">实时路由状态</string>
+    <string name="no_channels">暂无渠道，请先添加渠道</string>
+    <string name="active_channels">活跃渠道</string>
+    <string name="total_requests">总请求数</string>
+    <string name="success_rate">成功率</string>
+    <string name="avg_latency">平均延迟</string>
+
+    <!-- 渠道 -->
+    <string name="add_channel">添加渠道</string>
+    <string name="edit_channel">编辑渠道</string>
+    <string name="channel_name">渠道名称</string>
+    <string name="base_url">基础 URL</string>
+    <string name="api_keys">API 密钥（多个用逗号分隔）</string>
+    <string name="models">模型列表（多个用逗号分隔）</string>
+    <string name="priority">优先级（数字越大越优先）</string>
+    <string name="weight">权重</string>
+    <string name="auto_ban">自动禁用</string>
+    <string name="key_mode">密钥轮换模式</string>
+    <string name="key_mode_random">随机</string>
+    <string name="key_mode_polling">轮询</string>
+    <string name="route_mode">路由模式</string>
+    <string name="route_mode_url">URL 维度路由</string>
+    <string name="route_mode_model">模型维度路由</string>
+    <string name="test_model">测试模型</string>
+    <string name="channel_status">状态</string>
+    <string name="status_enabled">已启用</string>
+    <string name="status_disabled">已禁用</string>
+    <string name="status_auto_banned">已自动禁用</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="cancel">取消</string>
+    <string name="confirm_delete">确认删除该渠道？</string>
+    <string name="test_channel">测试渠道</string>
+    <string name="testing">测试中…</string>
+    <string name="test_success">测试成功，响应时间 %1$dms</string>
+    <string name="test_failed">测试失败：%1$s</string>
+
+    <!-- 设置 -->
+    <string name="server_settings">服务器设置</string>
+    <string name="server_port">监听端口</string>
+    <string name="auth_enabled">启用鉴权</string>
+    <string name="auth_token">访问令牌</string>
+    <string name="auth_token_hint">客户端需在 Authorization 头中携带此令牌</string>
+    <string name="retry_times">重试次数</string>
+    <string name="health_check_interval">健康检查间隔（秒）</string>
+    <string name="health_check_enabled">启用定时健康检查</string>
+    <string name="auto_start">开机自启</string>
+    <string name="notification_settings">通知设置</string>
+    <string name="foreground_notification">前台服务通知</string>
+
+    <!-- 通知 -->
+    <string name="notification_channel_name">路由服务</string>
+    <string name="notification_channel_desc">保持路由服务在后台运行</string>
+    <string name="notification_title">LLM 路由器运行中</string>
+    <string name="notification_text">已服务 %1$d 次请求 · 活跃渠道 %2$d 个</string>
+
+    <!-- 错误 -->
+    <string name="error_no_channel">没有可用的渠道来处理模型 %1$s</string>
+    <string name="error_all_keys_disabled">渠道 %1$s 的所有密钥已被禁用</string>
+    <string name="error_upstream">上游返回错误：%1$d %2$s</string>
+    <string name="error_timeout">请求超时</string>
+    <string name="error_connection">连接失败：%1$s</string>
+
+    <!-- 通用 -->
+    <string name="loading">加载中…</string>
+    <string name="empty">暂无数据</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+    <string name="ok">确定</string>
+</resources>

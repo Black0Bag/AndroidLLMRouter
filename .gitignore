@@ -1,0 +1,26 @@
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Gradle
+.gradle/
+build/
+/local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Kotlin
+*.kotlin_metadata
+
+# NEW API 参考源码（不提交）
+new-api-source/
+
+# Misc
+.DS_Store
+*.log
+.cxx/
