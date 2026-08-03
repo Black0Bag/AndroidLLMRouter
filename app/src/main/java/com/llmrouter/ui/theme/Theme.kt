@@ -7,8 +7,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import android.app.Activity
 import android.os.Build
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 
 // 配色方案
 private val LightColorScheme = lightColorScheme(
@@ -54,8 +54,15 @@ fun LlmRouterTheme(
 
     val view = LocalView.current
     if (!view.isInEditMode) {
-        val window = (view.context as Activity).window
-        window.statusBarColor = colorScheme.primary.toArgb()
+        // 安全地获取 Activity（避免 ClassCastException）
+        var ctx = LocalContext.current
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is Activity) {
+                ctx.window.statusBarColor = colorScheme.primary.toArgb()
+                break
+            }
+            ctx = ctx.baseContext
+        }
     }
 
     MaterialTheme(
