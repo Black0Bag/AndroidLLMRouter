@@ -9,8 +9,14 @@ import com.llmrouter.health.ChannelTestResult
 import com.llmrouter.health.HealthChecker
 import com.llmrouter.router.RouterEngine
 import com.llmrouter.service.RouterService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 data class RouteStats(
     val totalRequests: Int = 0,
@@ -19,17 +25,34 @@ data class RouteStats(
     val activeChannels: Int = 0
 )
 
+/** 单 Key 检测结果 */
+data class KeyTestResult(
+    val success: Boolean,
+    val responseTime: Int = 0,
+    val errorMessage: String? = null
+)
+
+/** 拉取模型结果 */
+data class FetchModelsResult(
+    val success: Boolean,
+    val models: List<String> = emptyList(),
+    val errorMessage: String? = null
+)
+
 class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
 
     private val routerEngine = RouterEngine(app.channelRepository, app.settingsRepository)
     private val healthChecker = HealthChecker(routerEngine, app.channelRepository, app.settingsRepository)
 
-    // 渠道列表
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
     val channels: StateFlow<List<ChannelEntity>> =
         app.channelRepository.getAllChannels()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // 设置（Kotlin combine 最多 5 参数，用嵌套方式处理 8 个 Flow）
     private val settingsGroup1 = combine(
         app.settingsRepository.serverPort,
         app.settingsRepository.authEnabled,
@@ -61,7 +84,6 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsSnapshot())
 
-    // 路由统计
     val routeStats: StateFlow<RouteStats> = combine(
         app.database.routeLogDao().getTotalCount(),
         app.database.routeLogDao().getSuccessCount(),
@@ -75,25 +97,115 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RouteStats())
 
-    // 最近日志
     val recentLogs = app.database.routeLogDao().getRecentLogs(50)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // 服务运行状态
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning
 
-    // API 端点
     val apiEndpoint: String
         get() = "http://${RouterService.getLocalIpAddress()}:${settings.value.serverPort}"
+
+    // === 拉取模型列表 ===
+
+    fun fetchModels(baseUrl: String, apiKey: String, onResult: (FetchModelsResult) -> Unit) {
+        viewModelScope.launch {
+            val result = fetchModelsFromServer(baseUrl, apiKey)
+            onResult(result)
+        }
+    }
+
+    private suspend fun fetchModelsFromServer(baseUrl: String, apiKey: String): FetchModelsResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = baseUrl.trimEnd('/') + "/v1/models"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $apiKey")
+                    .get()
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val body = response.body?.string() ?: ""
+
+                if (response.isSuccessful) {
+                    val json = JSONObject(body)
+                    val data = json.optJSONArray("data")
+                    val models = mutableListOf<String>()
+                    if (data != null) {
+                        for (i in 0 until data.length()) {
+                            val id = data.getJSONObject(i).optString("id", "")
+                            if (id.isNotEmpty()) models.add(id)
+                        }
+                    }
+                    FetchModelsResult(success = true, models = models.sorted())
+                } else {
+                    FetchModelsResult(false, errorMessage = "HTTP ${response.code}: ${body.take(200)}")
+                }
+            } catch (e: Exception) {
+                FetchModelsResult(false, errorMessage = "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
+    // === 检测单个 Key ===
+
+    fun testSingleKey(baseUrl: String, apiKey: String, model: String, onResult: (KeyTestResult) -> Unit) {
+        viewModelScope.launch {
+            val result = testKeyFromServer(baseUrl, apiKey, model)
+            onResult(result)
+        }
+    }
+
+    private suspend fun testKeyFromServer(baseUrl: String, apiKey: String, model: String): KeyTestResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = baseUrl.trimEnd('/') + "/v1/chat/completions"
+                val testBody = JSONObject().apply {
+                    put("model", model)
+                    put("messages", org.json.JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", "hi")
+                        })
+                    })
+                    put("max_tokens", 1)
+                    put("stream", false)
+                }.toString()
+
+                val startTime = System.currentTimeMillis()
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Content-Type", "application/json")
+                    .post(okhttp3.RequestBody.Companion.create(
+                        okhttp3.MediaType.Companion.parse("application/json"), testBody
+                    ))
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val elapsed = (System.currentTimeMillis() - startTime).toInt()
+
+                if (response.isSuccessful) {
+                    response.close()
+                    KeyTestResult(success = true, responseTime = elapsed)
+                } else {
+                    val errorBody = response.body?.string() ?: ""
+                    response.close()
+                    KeyTestResult(false, errorMessage = "HTTP ${response.code}: ${errorBody.take(150)}")
+                }
+            } catch (e: Exception) {
+                KeyTestResult(false, errorMessage = "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
 
     // === 渠道操作 ===
 
     fun addChannel(
         name: String,
         baseUrl: String,
-        apiKeys: String,
-        models: String,
+        apiKeys: List<String>,
+        models: List<String>,
+        disabledModels: Set<String>,
         priority: Int,
         weight: Int,
         autoBan: Boolean,
@@ -106,8 +218,9 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                 ChannelEntity(
                     name = name,
                     baseUrl = baseUrl,
-                    apiKeys = apiKeys,
-                    models = models,
+                    apiKeys = apiKeys.joinToString(","),
+                    models = models.joinToString(","),
+                    disabledModels = disabledModels.joinToString(","),
                     priority = priority,
                     weight = weight,
                     autoBan = autoBan,

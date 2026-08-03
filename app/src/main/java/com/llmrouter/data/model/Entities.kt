@@ -5,7 +5,6 @@ import androidx.room.PrimaryKey
 
 /**
  * 渠道实体 = 一个 URL（对应 NEW API 的 Channel）
- * 每个 Channel 包含：BaseURL + 多个 API Key + 多个模型 + 优先级 + 状态 + AutoBan
  */
 @Entity(tableName = "channels")
 data class ChannelEntity(
@@ -13,32 +12,40 @@ data class ChannelEntity(
     val id: Long = 0,
     val name: String,
     val baseUrl: String,
-    val apiKeys: String,           // 多个 key 用逗号分隔
-    val models: String,            // 多个模型用逗号分隔
-    val priority: Int = 0,         // 优先级（数字越大越优先）
-    val weight: Int = 1,           // 权重（同优先级内加权随机）
-    val autoBan: Boolean = true,   // 自动禁用开关
-    val keyMode: String = "random",// 密钥轮换模式: random / polling
-    val testModel: String = "",    // 测试用模型名
-    val status: Int = 1,           // 1=启用, 2=手动禁用, 3=自动禁用
-    val responseTime: Int = 0,     // 最近响应时间（毫秒）
-    val testTime: Long = 0,        // 最后测试时间戳
-    val keyStates: String = "[]",  // 各 Key 状态 JSON: [{index, enabled, disabledReason, disabledTime}]
-    val pollingIndex: Int = 0,     // 轮询当前索引
-    val usedQuota: Long = 0,       // 已用请求数
+    val apiKeys: String,           // 多个 key 用逗号分隔（向后兼容）
+    val models: String,            // 从服务器拉取的全部模型，逗号分隔
+    val disabledModels: String = "", // 被用户排除的模型，逗号分隔
+    val priority: Int = 0,
+    val weight: Int = 1,
+    val autoBan: Boolean = true,
+    val keyMode: String = "random",
+    val testModel: String = "",
+    val status: Int = 1,
+    val responseTime: Int = 0,
+    val testTime: Long = 0,
+    val keyStates: String = "[]",
+    val pollingIndex: Int = 0,
+    val usedQuota: Long = 0,
     val createdAt: Long = System.currentTimeMillis()
 ) {
-    /** 获取 Key 列表 */
     fun keyList(): List<String> =
         if (apiKeys.isBlank()) emptyList()
         else apiKeys.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** 获取模型列表 */
-    fun modelList(): List<String> =
+    /** 服务器拉取的全部模型 */
+    fun allModelList(): List<String> =
         if (models.isBlank()) emptyList()
         else models.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
-    /** 是否包含指定模型（支持归一化匹配） */
+    /** 被排除的模型 */
+    fun disabledModelSet(): Set<String> =
+        if (disabledModels.isBlank()) emptySet()
+        else disabledModels.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+
+    /** 实际参与路由的模型列表 = 全部 - 排除 */
+    fun modelList(): List<String> =
+        allModelList().filter { it.trim().lowercase() !in disabledModelSet() }
+
     fun supportsModel(model: String): Boolean {
         val normalized = model.lowercase().trim()
         return modelList().any {
@@ -54,9 +61,6 @@ data class ChannelEntity(
     }
 }
 
-/**
- * 路由日志实体
- */
 @Entity(tableName = "route_logs")
 data class RouteLogEntity(
     @PrimaryKey(autoGenerate = true)

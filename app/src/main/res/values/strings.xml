@@ -26,8 +26,8 @@
     <string name="edit_channel">编辑渠道</string>
     <string name="channel_name">渠道名称</string>
     <string name="base_url">基础 URL</string>
-    <string name="api_keys">API 密钥（多个用逗号分隔）</string>
-    <string name="models">模型列表（多个用逗号分隔）</string>
+    <string name="api_keys">API 密钥</string>
+    <string name="models">模型列表</string>
     <string name="priority">优先级（数字越大越优先）</string>
     <string name="weight">权重</string>
     <string name="auto_ban">自动禁用</string>
