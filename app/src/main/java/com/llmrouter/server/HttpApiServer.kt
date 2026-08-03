@@ -180,7 +180,7 @@ class HttpApiServer(
             401 -> Response.Status.UNAUTHORIZED
             404 -> Response.Status.NOT_FOUND
             500 -> Response.Status.INTERNAL_ERROR
-            502 -> Response.Status.BAD_GATEWAY
+            502 -> Response.Status.INTERNAL_ERROR
             else -> Response.Status.INTERNAL_ERROR
         }
         return newFixedLengthResponse(status, "application/json", error.toString())
