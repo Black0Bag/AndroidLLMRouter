@@ -13,8 +13,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -177,9 +179,7 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                     .url(url)
                     .header("Authorization", "Bearer $apiKey")
                     .header("Content-Type", "application/json")
-                    .post(okhttp3.RequestBody.Companion.create(
-                        okhttp3.MediaType.Companion.parse("application/json"), testBody
-                    ))
+                    .post(testBody.toRequestBody("application/json".toMediaType()))
                     .build()
 
                 val response = httpClient.newCall(request).execute()
