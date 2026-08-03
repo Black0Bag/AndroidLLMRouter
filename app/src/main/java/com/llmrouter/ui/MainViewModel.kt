@@ -1,6 +1,5 @@
 package com.llmrouter.ui
 
-import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.llmrouter.LlmRouterApp
@@ -20,9 +19,8 @@ data class RouteStats(
     val activeChannels: Int = 0
 )
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
+class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
 
-    private val app = app as LlmRouterApp
     private val routerEngine = RouterEngine(app.channelRepository, app.settingsRepository)
     private val healthChecker = HealthChecker(routerEngine, app.channelRepository, app.settingsRepository)
 
@@ -31,26 +29,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         app.channelRepository.getAllChannels()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // 设置
-    val settings: StateFlow<SettingsSnapshot> = combine(
+    // 设置（Kotlin combine 最多 5 参数，用嵌套方式处理 8 个 Flow）
+    private val settingsGroup1 = combine(
         app.settingsRepository.serverPort,
         app.settingsRepository.authEnabled,
         app.settingsRepository.authToken,
-        app.settingsRepository.retryTimes,
+        app.settingsRepository.retryTimes
+    ) { port, authEn, authTok, retry ->
+        arrayOf(port, authEn, authTok, retry)
+    }
+
+    private val settingsGroup2 = combine(
         app.settingsRepository.healthCheckEnabled,
         app.settingsRepository.healthCheckInterval,
         app.settingsRepository.autoStart,
         app.settingsRepository.routeMode
-    ) { values ->
+    ) { hcEn, hcInt, autoSt, rMode ->
+        arrayOf(hcEn, hcInt, autoSt, rMode)
+    }
+
+    val settings: StateFlow<SettingsSnapshot> = combine(settingsGroup1, settingsGroup2) { g1, g2 ->
         SettingsSnapshot(
-            serverPort = values[0] as Int,
-            authEnabled = values[1] as Boolean,
-            authToken = values[2] as String,
-            retryTimes = values[3] as Int,
-            healthCheckEnabled = values[4] as Boolean,
-            healthCheckInterval = values[5] as Int,
-            autoStart = values[6] as Boolean,
-            routeMode = values[7] as String
+            serverPort = g1[0] as Int,
+            authEnabled = g1[1] as Boolean,
+            authToken = g1[2] as String,
+            retryTimes = g1[3] as Int,
+            healthCheckEnabled = g2[0] as Boolean,
+            healthCheckInterval = g2[1] as Int,
+            autoStart = g2[2] as Boolean,
+            routeMode = g2[3] as String
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsSnapshot())
 
@@ -151,12 +158,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // === 服务操作 ===
 
     fun startService() {
-        RouterService.start(getApplication())
+        RouterService.start(app)
         _isServiceRunning.value = true
     }
 
     fun stopService() {
-        RouterService.stop(getApplication())
+        RouterService.stop(app)
         _isServiceRunning.value = false
     }
 

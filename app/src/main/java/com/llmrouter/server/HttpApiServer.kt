@@ -15,6 +15,7 @@ import java.io.InputStream
  * - GET  /v1/models           — 列出所有可用模型
  * - POST /v1/chat/completions — 聊天补全（支持 streaming）
  * - POST /v1/embeddings       — 文本嵌入
+ * - POST /v1/completions      — 文本补全
  * - GET  /health              — 健康检查
  * - GET  /                    — 服务信息
  *
@@ -70,7 +71,11 @@ class HttpApiServer(
         if (!settings.authEnabled) return true
         if (settings.authToken.isBlank()) return true
 
-        val authHeader = session.headers?.firstOrNull { it.key.equals("authorization", true) }?.value
+        // NanoHTTPD headers 是 Map<String, String>
+        val headers = session.headers ?: return false
+        val authHeader = headers.entries
+            .firstOrNull { it.key.equals("authorization", true) }
+            ?.value
         val token = authHeader?.removePrefix("Bearer ")?.trim()
         return token == settings.authToken
     }
@@ -139,7 +144,10 @@ class HttpApiServer(
     /** 解析 POST 请求体 */
     private fun parseBody(session: IHTTPSession): String? {
         val files = HashMap<String, String>()
-        val size = session.headers?.firstOrNull { it.key.equals("content-length", true) }?.value?.toIntOrNull() ?: 0
+        val headers = session.headers ?: return null
+        val size = headers.entries
+            .firstOrNull { it.key.equals("content-length", true) }
+            ?.value?.toIntOrNull() ?: 0
 
         if (size == 0) return null
 
@@ -166,9 +174,13 @@ class HttpApiServer(
                 put("code", code)
             })
         }
-        val status = when (code) {
-            in 400..499 -> Response.Status.lookup(code.toString()) ?: Response.Status.BAD_REQUEST
-            in 500..599 -> Response.Status.lookup(code.toString()) ?: Response.Status.INTERNAL_ERROR
+        // 选择 HTTP 状态
+        val status: Response.Status = when (code) {
+            400 -> Response.Status.BAD_REQUEST
+            401 -> Response.Status.UNAUTHORIZED
+            404 -> Response.Status.NOT_FOUND
+            500 -> Response.Status.INTERNAL_ERROR
+            502 -> Response.Status.BAD_GATEWAY
             else -> Response.Status.INTERNAL_ERROR
         }
         return newFixedLengthResponse(status, "application/json", error.toString())

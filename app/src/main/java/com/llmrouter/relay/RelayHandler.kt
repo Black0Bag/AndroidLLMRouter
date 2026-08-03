@@ -175,12 +175,14 @@ class RelayHandler(
         var lastError = "未知错误"
 
         for (retry in 0..maxRetries) {
-            val channel = routerEngine.selectChannel(model, retry, settings.routeMode) ?: run {
+            val channel = routerEngine.selectChannel(model, retry, settings.routeMode)
+            if (channel == null) {
                 lastError = "没有可用的渠道来处理模型 $model"
                 break
             }
 
-            val keyAndIndex = selectKeyWithIndex(channel) ?: run {
+            val keyAndIndex = selectKeyWithIndex(channel)
+            if (keyAndIndex == null) {
                 lastError = "渠道 ${channel.name} 的所有密钥已被禁用"
                 continue
             }
