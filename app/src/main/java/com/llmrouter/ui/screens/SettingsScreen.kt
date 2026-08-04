@@ -19,6 +19,7 @@ import com.llmrouter.ui.MainViewModel
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
+    val context = LocalContext.current
 
     var port by remember(settings.serverPort) { mutableStateOf(settings.serverPort.toString()) }
     var authEnabled by remember(settings.authEnabled) { mutableStateOf(settings.authEnabled) }
@@ -217,7 +218,6 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         onClick = {
                             viewModel.exportConfig { result ->
                                 exportMsg = if (result.success) {
-                                    val context = LocalContext.current
                                     val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                         type = "application/json"
                                         putExtra(android.content.Intent.EXTRA_TEXT, result.json)
