@@ -23,6 +23,52 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
     val context = LocalContext.current
 
+    // === 配置导出/导入：launcher 必须在顶层 Composable 注册 ===
+    var exportMsg by remember { mutableStateOf("") }
+    var importMsg by remember { mutableStateOf("") }
+    var pendingExportJson by remember { mutableStateOf("") }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null && pendingExportJson.isNotEmpty()) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { os ->
+                    os.write(pendingExportJson.toByteArray())
+                }
+                exportMsg = "配置已导出到文件（${pendingExportJson.length} 字符）"
+            } catch (e: Exception) {
+                exportMsg = "写入失败：${e.message}"
+            }
+        }
+        pendingExportJson = ""
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val json = context.contentResolver.openInputStream(uri)?.use { is_ ->
+                    is_.bufferedReader().readText()
+                } ?: ""
+                if (json.isNotEmpty()) {
+                    viewModel.importConfig(json) { result ->
+                        importMsg = if (result.success) {
+                            "导入成功：${result.channelCount} 个渠道"
+                        } else {
+                            "导入失败：${result.errorMessage}"
+                        }
+                    }
+                } else {
+                    importMsg = "文件内容为空"
+                }
+            } catch (e: Exception) {
+                importMsg = "读取失败：${e.message}"
+            }
+        }
+    }
+
     var port by remember(settings.serverPort) { mutableStateOf(settings.serverPort.toString()) }
     var authEnabled by remember(settings.authEnabled) { mutableStateOf(settings.authEnabled) }
     var authToken by remember(settings.authToken) { mutableStateOf(settings.authToken) }
@@ -206,53 +252,6 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(12.dp))
-
-                var exportMsg by remember { mutableStateOf("") }
-                var importMsg by remember { mutableStateOf("") }
-                var pendingExportJson by remember { mutableStateOf("") }
-
-                // 导出：ACTION_CREATE_DOCUMENT — 系统文件选择器选保存位置
-                val exportLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.CreateDocument("application/json")
-                ) { uri ->
-                    if (uri != null && pendingExportJson.isNotEmpty()) {
-                        try {
-                            context.contentResolver.openOutputStream(uri)?.use { os ->
-                                os.write(pendingExportJson.toByteArray())
-                            }
-                            exportMsg = "配置已导出到文件"
-                        } catch (e: Exception) {
-                            exportMsg = "写入失败：${e.message}"
-                        }
-                    }
-                    pendingExportJson = ""
-                }
-
-                // 导入：ACTION_OPEN_DOCUMENT — 系统文件选择器选文件
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    if (uri != null) {
-                        try {
-                            val json = context.contentResolver.openInputStream(uri)?.use { is_ ->
-                                is_.bufferedReader().readText()
-                            } ?: ""
-                            if (json.isNotEmpty()) {
-                                viewModel.importConfig(json) { result ->
-                                    importMsg = if (result.success) {
-                                        "导入成功：${result.channelCount} 个渠道"
-                                    } else {
-                                        "导入失败：${result.errorMessage}"
-                                    }
-                                }
-                            } else {
-                                importMsg = "文件内容为空"
-                            }
-                        } catch (e: Exception) {
-                            importMsg = "读取失败：${e.message}"
-                        }
-                    }
-                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
