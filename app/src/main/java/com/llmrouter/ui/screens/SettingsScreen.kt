@@ -1,5 +1,7 @@
 package com.llmrouter.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -206,9 +208,51 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Spacer(Modifier.height(12.dp))
 
                 var exportMsg by remember { mutableStateOf("") }
-                var showImportDialog by remember { mutableStateOf(false) }
-                var importJsonText by remember { mutableStateOf("") }
                 var importMsg by remember { mutableStateOf("") }
+                var pendingExportJson by remember { mutableStateOf("") }
+
+                // 导出：ACTION_CREATE_DOCUMENT — 系统文件选择器选保存位置
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri ->
+                    if (uri != null && pendingExportJson.isNotEmpty()) {
+                        try {
+                            context.contentResolver.openOutputStream(uri)?.use { os ->
+                                os.write(pendingExportJson.toByteArray())
+                            }
+                            exportMsg = "配置已导出到文件"
+                        } catch (e: Exception) {
+                            exportMsg = "写入失败：${e.message}"
+                        }
+                    }
+                    pendingExportJson = ""
+                }
+
+                // 导入：ACTION_OPEN_DOCUMENT — 系统文件选择器选文件
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    if (uri != null) {
+                        try {
+                            val json = context.contentResolver.openInputStream(uri)?.use { is_ ->
+                                is_.bufferedReader().readText()
+                            } ?: ""
+                            if (json.isNotEmpty()) {
+                                viewModel.importConfig(json) { result ->
+                                    importMsg = if (result.success) {
+                                        "导入成功：${result.channelCount} 个渠道"
+                                    } else {
+                                        "导入失败：${result.errorMessage}"
+                                    }
+                                }
+                            } else {
+                                importMsg = "文件内容为空"
+                            }
+                        } catch (e: Exception) {
+                            importMsg = "读取失败：${e.message}"
+                        }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -217,18 +261,11 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     OutlinedButton(
                         onClick = {
                             viewModel.exportConfig { result ->
-                                exportMsg = if (result.success) {
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                        type = "application/json"
-                                        putExtra(android.content.Intent.EXTRA_TEXT, result.json)
-                                    }
-                                    val chooser = android.content.Intent.createChooser(intent, "导出配置").apply {
-                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(chooser)
-                                    "配置已导出（${result.json.length} 字符）"
+                                if (result.success) {
+                                    pendingExportJson = result.json
+                                    exportLauncher.launch("llm-router-config.json")
                                 } else {
-                                    "导出失败：${result.errorMessage}"
+                                    exportMsg = "导出失败：${result.errorMessage}"
                                 }
                             }
                         },
@@ -238,7 +275,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     }
 
                     OutlinedButton(
-                        onClick = { showImportDialog = true },
+                        onClick = {
+                            importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                        },
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("导入配置")
@@ -253,47 +292,6 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     Spacer(Modifier.height(8.dp))
                     Text(importMsg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
-
-                if (showImportDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showImportDialog = false; importMsg = "" },
-                        title = { Text("导入配置") },
-                        text = {
-                            Column {
-                                Text(
-                                    "粘贴之前导出的 JSON 配置。注意：导入会覆盖现有所有渠道！",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = importJsonText,
-                                    onValueChange = { importJsonText = it },
-                                    label = { Text("JSON 配置") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 120.dp, max = 300.dp),
-                                    maxLines = 10
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                viewModel.importConfig(importJsonText) { result ->
-                                    importMsg = if (result.success) {
-                                        "导入成功：${result.channelCount} 个渠道"
-                                    } else {
-                                        "导入失败：${result.errorMessage}"
-                                    }
-                                    showImportDialog = false
-                                }
-                            }) { Text("确认导入") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showImportDialog = false }) { Text("取消") }
-                        }
-                    )
-                }
             }
         }
 
@@ -304,7 +302,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
         Spacer(Modifier.height(16.dp))
         Text("关于", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("LLM 路由器 v0.1.0", style = MaterialTheme.typography.bodyMedium)
+        Text("LLM 路由器 v0.5.0", style = MaterialTheme.typography.bodyMedium)
         Text("将 NEW API 核心功能落地为安卓原生 APP", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("支持 URL 维度/模型维度路由、多 Key 轮换、健康检查、自动故障切换", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
