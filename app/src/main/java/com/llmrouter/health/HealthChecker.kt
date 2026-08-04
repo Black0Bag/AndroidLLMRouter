@@ -6,12 +6,8 @@ import com.llmrouter.data.repo.SettingsRepository
 import com.llmrouter.router.RouterEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** 测试结果 */
@@ -22,13 +18,7 @@ data class ChannelTestResult(
 )
 
 /**
- * 健康检查器 — 定时探测各渠道/Key 可用性与响应延迟
- *
- * 功能：
- * 1. 定时对所有启用渠道发送测试请求，测量响应延迟
- * 2. 测试成功 → 更新 ResponseTime，恢复被 AutoBan 的渠道/Key
- * 3. 测试失败 → 记录但不直接禁用（AutoBan 由实际请求失败触发）
- * 4. 提供单次渠道测试接口供 UI 调用
+ * 健康检查器 — 用 /v1/models GET 请求检测（不消耗额度，不会触发 529）
  */
 class HealthChecker(
     private val routerEngine: RouterEngine,
@@ -41,8 +31,6 @@ class HealthChecker(
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val jsonMedia = "application/json; charset=utf-8".toMediaType()
-
     /** 执行一轮完整健康检查 */
     suspend fun runHealthCheck() = withContext(Dispatchers.IO) {
         val settings = settingsRepository.getSnapshot()
@@ -54,23 +42,18 @@ class HealthChecker(
         }
     }
 
-    /** 检查单个渠道 */
+    /** 检查单个渠道（用 /v1/models GET） */
     private suspend fun checkChannel(channel: ChannelEntity) {
-        val testModel = channel.testModel.ifBlank {
-            channel.modelList().firstOrNull() ?: return
-        }
         val key = routerEngine.selectKey(channel) ?: return
 
         try {
             val startTime = System.currentTimeMillis()
-            val testBody = buildTestRequest(testModel)
-            val url = buildUrl(channel.baseUrl, "/v1/chat/completions")
+            val url = buildApiUrl(channel.baseUrl, "/v1/models")
 
             val request = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $key")
-                .header("Content-Type", "application/json")
-                .post(testBody.toRequestBody(jsonMedia))
+                .get()
                 .build()
 
             val response = httpClient.newCall(request).execute()
@@ -78,26 +61,18 @@ class HealthChecker(
 
             if (response.isSuccessful) {
                 channelRepository.updateTestResult(channel.id, elapsed, System.currentTimeMillis())
-                // 如果渠道之前被 AutoBan，测试成功则恢复
                 if (channel.status == ChannelEntity.STATUS_AUTO_BANNED) {
                     routerEngine.recoverChannel(channel)
                 }
             }
             response.close()
         } catch (e: Exception) {
-            // 健康检查失败不直接禁用，仅记录
+            // 健康检查失败不直接禁用
         }
     }
 
-    /** 单次测试指定渠道（供 UI 调用） */
+    /** 单次测试指定渠道（供 UI 调用，逐个测试所有 Key） */
     suspend fun testChannel(channel: ChannelEntity): ChannelTestResult = withContext(Dispatchers.IO) {
-        val testModel = channel.testModel.ifBlank {
-            channel.modelList().firstOrNull() ?: return@withContext ChannelTestResult(
-                false, errorMessage = "渠道未配置模型"
-            )
-        }
-
-        // 逐个测试所有 Key
         val keys = channel.keyList()
         if (keys.isEmpty()) return@withContext ChannelTestResult(
             false, errorMessage = "渠道未配置密钥"
@@ -108,14 +83,12 @@ class HealthChecker(
         for ((index, key) in keys.withIndex()) {
             try {
                 val startTime = System.currentTimeMillis()
-                val testBody = buildTestRequest(testModel)
-                val url = buildUrl(channel.baseUrl, "/v1/chat/completions")
+                val url = buildApiUrl(channel.baseUrl, "/v1/models")
 
                 val request = Request.Builder()
                     .url(url)
                     .header("Authorization", "Bearer $key")
-                    .header("Content-Type", "application/json")
-                    .post(testBody.toRequestBody(jsonMedia))
+                    .get()
                     .build()
 
                 val response = httpClient.newCall(request).execute()
@@ -148,23 +121,13 @@ class HealthChecker(
         bestResult ?: ChannelTestResult(false, errorMessage = "所有密钥测试失败")
     }
 
-    private fun buildTestRequest(model: String): String {
-        return JSONObject().apply {
-            put("model", model)
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "hi")
-                })
-            })
-            put("max_tokens", 1)
-            put("stream", false)
-        }.toString()
-    }
-
-    private fun buildUrl(baseUrl: String, path: String): String {
+    /** 构建完整 API URL：自动处理 baseUrl 中已有的 /v1 */
+    private fun buildApiUrl(baseUrl: String, path: String): String {
         val base = baseUrl.trimEnd('/')
         val p = if (path.startsWith("/")) path else "/$path"
+        if (base.endsWith("/v1") && p.startsWith("/v1/")) {
+            return base + p.substring(3)
+        }
         return "$base$p"
     }
 }

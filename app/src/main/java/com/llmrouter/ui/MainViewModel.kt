@@ -27,14 +27,12 @@ data class RouteStats(
     val activeChannels: Int = 0
 )
 
-/** 单 Key 检测结果 */
 data class KeyTestResult(
     val success: Boolean,
     val responseTime: Int = 0,
     val errorMessage: String? = null
 )
 
-/** 拉取模型结果 */
 data class FetchModelsResult(
     val success: Boolean,
     val models: List<String> = emptyList(),
@@ -108,6 +106,25 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
     val apiEndpoint: String
         get() = "http://${RouterService.getLocalIpAddress()}:${settings.value.serverPort}"
 
+    // === URL 标准化：自动处理 /v1 后缀 ===
+    private fun normalizeBaseUrl(baseUrl: String): String {
+        val trimmed = baseUrl.trimEnd('/')
+        // 如果 URL 已经以 /v1 结尾，不再拼接 /v1
+        return trimmed
+    }
+
+    /** 构建完整 API URL：自动处理 baseUrl 中已有的 /v1 */
+    private fun buildApiUrl(baseUrl: String, path: String): String {
+        val base = baseUrl.trimEnd('/')
+        // path 形如 "/v1/models" 或 "/v1/chat/completions"
+        val p = if (path.startsWith("/")) path else "/$path"
+        // 如果 baseUrl 已以 /v1 结尾，且 path 也以 /v1 开头，去重
+        if (base.endsWith("/v1") && p.startsWith("/v1/")) {
+            return base + p.substring(3) // 去掉 path 中的 /v1
+        }
+        return "$base$p"
+    }
+
     // === 拉取模型列表 ===
 
     fun fetchModels(baseUrl: String, apiKey: String, onResult: (FetchModelsResult) -> Unit) {
@@ -120,7 +137,7 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
     private suspend fun fetchModelsFromServer(baseUrl: String, apiKey: String): FetchModelsResult =
         withContext(Dispatchers.IO) {
             try {
-                val url = baseUrl.trimEnd('/') + "/v1/models"
+                val url = buildApiUrl(baseUrl, "/v1/models")
                 val request = Request.Builder()
                     .url(url)
                     .header("Authorization", "Bearer $apiKey")
@@ -149,44 +166,36 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
             }
         }
 
-    // === 检测单个 Key ===
+    // === 检测单个 Key（用 /v1/models GET，不消耗额度） ===
 
     fun testSingleKey(baseUrl: String, apiKey: String, model: String, onResult: (KeyTestResult) -> Unit) {
         viewModelScope.launch {
-            val result = testKeyFromServer(baseUrl, apiKey, model)
+            val result = testKeyFromServer(baseUrl, apiKey)
             onResult(result)
         }
     }
 
-    private suspend fun testKeyFromServer(baseUrl: String, apiKey: String, model: String): KeyTestResult =
+    private suspend fun testKeyFromServer(baseUrl: String, apiKey: String): KeyTestResult =
         withContext(Dispatchers.IO) {
             try {
-                val url = baseUrl.trimEnd('/') + "/v1/chat/completions"
-                val testBody = JSONObject().apply {
-                    put("model", model)
-                    put("messages", org.json.JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("role", "user")
-                            put("content", "hi")
-                        })
-                    })
-                    put("max_tokens", 1)
-                    put("stream", false)
-                }.toString()
-
+                val url = buildApiUrl(baseUrl, "/v1/models")
                 val startTime = System.currentTimeMillis()
                 val request = Request.Builder()
                     .url(url)
                     .header("Authorization", "Bearer $apiKey")
-                    .header("Content-Type", "application/json")
-                    .post(testBody.toRequestBody("application/json".toMediaType()))
+                    .get()
                     .build()
 
                 val response = httpClient.newCall(request).execute()
                 val elapsed = (System.currentTimeMillis() - startTime).toInt()
 
                 if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
                     response.close()
+                    // 验证返回体有效
+                    val json = JSONObject(body)
+                    val data = json.optJSONArray("data")
+                    val modelCount = data?.length() ?: 0
                     KeyTestResult(success = true, responseTime = elapsed)
                 } else {
                     val errorBody = response.body?.string() ?: ""
