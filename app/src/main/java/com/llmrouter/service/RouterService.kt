@@ -22,17 +22,37 @@ import java.net.NetworkInterface
 
 class RouterService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * 关键修复：协程异常处理器。
+     * 之前的 scope 没有异常处理器，任何协程内部未捕获异常（如端口被占用时
+     * HTTP 服务器启动失败）都会传播到主线程导致整个 App 闪退。
+     * 现在所有协程异常只记录日志，绝不影响进程存活。
+     */
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e ->
+            android.util.Log.e("RouterService", "协程异常（已捕获，不影响服务）", e)
+        }
+    )
+
     private var httpServer: HttpApiServer? = null
     private var healthCheckJob: Job? = null
     private var notificationUpdateJob: Job? = null
 
     private val app get() = application as LlmRouterApp
 
+    /** 最近一次已知端口，用于避免在主线程 runBlocking 读 DataStore */
+    @Volatile
+    private var lastKnownPort: Int = 8080
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(0, 0))
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(0, 0, lastKnownPort))
+        } catch (e: Exception) {
+            // Android 12+ 后台启动前台服务可能抛异常，捕获避免崩溃
+            android.util.Log.e("RouterService", "startForeground 失败", e)
+        }
 
         scope.launch {
             startRouter()
@@ -42,38 +62,52 @@ class RouterService : Service() {
     }
 
     private suspend fun startRouter() {
-        // 刷新路由引擎缓存
-        app.channelRepository.let { repo ->
-            val routerEngine = RouterEngine(repo, app.settingsRepository)
-            routerEngine.refreshCache()
+        // 整个启动流程包在 try-catch 中：任何一步失败都不能让 App 崩溃
+        try {
+            app.channelRepository.let { repo ->
+                val routerEngine = RouterEngine(repo, app.settingsRepository)
+                routerEngine.refreshCache()
 
-            val settings = app.settingsRepository.getSnapshot()
+                val settings = app.settingsRepository.getSnapshot()
+                lastKnownPort = settings.serverPort
 
-            // 创建转发处理器
-            val relayHandler = RelayHandler(
-                routerEngine, repo, app.settingsRepository,
-                app.database.routeLogDao()
-            )
+                // 创建转发处理器
+                val relayHandler = RelayHandler(
+                    routerEngine, repo, app.settingsRepository,
+                    app.database.routeLogDao()
+                )
 
-            // 创建健康检查器
-            val healthChecker = HealthChecker(routerEngine, repo, app.settingsRepository)
+                // 创建健康检查器
+                val healthChecker = HealthChecker(routerEngine, repo, app.settingsRepository)
 
-            // 启动 HTTP 服务器
-            try {
-                httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
-                httpServer?.start(SOCKET_READ_TIMEOUT)
-            } catch (e: Exception) {
-                // 端口可能被占用，尝试重试
-                httpServer?.stop()
-                httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
-                httpServer?.start(SOCKET_READ_TIMEOUT)
+                // 启动 HTTP 服务器（带重试与兜底）
+                var serverStarted = false
+                try {
+                    httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
+                    httpServer?.start(SOCKET_READ_TIMEOUT)
+                    serverStarted = true
+                } catch (e1: Exception) {
+                    android.util.Log.w("RouterService", "HTTP 服务器首次启动失败，重试", e1)
+                    try {
+                        httpServer?.stop()
+                        httpServer = null
+                        httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
+                        httpServer?.start(SOCKET_READ_TIMEOUT)
+                        serverStarted = true
+                    } catch (e2: Exception) {
+                        // 重试仍失败：记录日志，服务继续运行（健康检查/通知仍可用）
+                        android.util.Log.e("RouterService", "HTTP 服务器启动失败：端口 ${settings.serverPort} 可能被占用", e2)
+                    }
+                }
+
+                // 启动健康检查定时任务（内部自带异常保护）
+                startHealthCheck(healthChecker, settings)
+
+                // 启动通知更新
+                startNotificationUpdate()
             }
-
-            // 启动健康检查定时任务
-            startHealthCheck(healthChecker, settings)
-
-            // 启动通知更新
-            startNotificationUpdate()
+        } catch (e: Exception) {
+            android.util.Log.e("RouterService", "服务启动流程异常（已捕获）", e)
         }
     }
 
@@ -81,7 +115,7 @@ class RouterService : Service() {
         healthCheckJob?.cancel()
         if (!settings.healthCheckEnabled) return
 
-        val intervalMs = settings.healthCheckInterval * 1000L
+        val intervalMs = (settings.healthCheckInterval.coerceAtLeast(10)) * 1000L
         healthCheckJob = scope.launch {
             while (isActive) {
                 delay(intervalMs)
@@ -89,6 +123,7 @@ class RouterService : Service() {
                     healthChecker.runHealthCheck()
                 } catch (e: Exception) {
                     // 健康检查异常不影响服务运行
+                    android.util.Log.w("RouterService", "健康检查异常", e)
                 }
             }
         }
@@ -97,16 +132,24 @@ class RouterService : Service() {
     private fun startNotificationUpdate() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = scope.launch {
-            app.database.routeLogDao().getTotalCount().collectLatest { total ->
-                val activeChannels = app.channelRepository.getEnabledChannels().size
-                val notification = buildNotification(total, activeChannels)
-                val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                nm.notify(NOTIFICATION_ID, notification)
+            try {
+                app.database.routeLogDao().getTotalCount().collectLatest { total ->
+                    try {
+                        val activeChannels = app.channelRepository.getEnabledChannels().size
+                        val notification = buildNotification(total, activeChannels, lastKnownPort)
+                        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                        nm.notify(NOTIFICATION_ID, notification)
+                    } catch (e: Exception) {
+                        android.util.Log.w("RouterService", "通知更新失败", e)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("RouterService", "通知收集失败", e)
             }
         }
     }
 
-    private fun buildNotification(totalRequests: Int, activeChannels: Int): Notification {
+    private fun buildNotification(totalRequests: Int, activeChannels: Int, port: Int): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
@@ -114,7 +157,7 @@ class RouterService : Service() {
         )
 
         val text = getString(R.string.notification_text, totalRequests, activeChannels)
-        val endpoint = "http://${getLocalIpAddress()}:${app.settingsRepository.let { runBlocking { it.getSnapshot().serverPort } }}"
+        val endpoint = "http://${getLocalIpAddress()}:$port"
 
         return NotificationCompat.Builder(this, LlmRouterApp.CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
@@ -129,7 +172,11 @@ class RouterService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        httpServer?.stop()
+        try {
+            httpServer?.stop()
+        } catch (e: Exception) {
+            // ignore
+        }
         httpServer = null
         healthCheckJob?.cancel()
         notificationUpdateJob?.cancel()

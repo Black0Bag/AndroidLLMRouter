@@ -45,6 +45,18 @@ fun HomeScreen(
         "http://${com.llmrouter.service.RouterService.getLocalIpAddress()}:${settings.serverPort}"
     }
 
+    // OpenAI 兼容 Base URL：客户端必须填 /v1 后缀
+    val apiBaseUrl = "$apiEndpoint/v1"
+    // 完整 chat completions 端点（用于直接 curl 测试）
+    val chatCompletionsUrl = "$apiEndpoint/v1/chat/completions"
+
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    fun copyText(label: String, text: String) {
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(context, "$label 已复制", Toast.LENGTH_SHORT).show()
+    }
+
     val enabledChannels = channels.count { it.status == ChannelEntity.STATUS_ENABLED }
     val hasChannels = channels.isNotEmpty()
 
@@ -112,40 +124,82 @@ fun HomeScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // === API 端点 ===
+        // === API 端点（含 /v1） ===
         Card(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.api_endpoint),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        apiEndpoint,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (settings.authEnabled && settings.authToken.isNotEmpty()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Authorization: Bearer ${settings.authToken.take(8)}…",
+                            "Base URL（OpenAI 兼容）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            apiBaseUrl,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "客户端 Base URL 需含 /v1",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    IconButton(onClick = {
+                        copyText("Base URL", apiBaseUrl)
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "复制 Base URL")
+                    }
                 }
-                IconButton(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("API Endpoint", apiEndpoint))
-                    Toast.makeText(context, R.string.endpoint_copied, Toast.LENGTH_SHORT).show()
-                }) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.copy_endpoint))
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Chat 端点（完整 URL）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            chatCompletionsUrl,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = {
+                        copyText("Chat 端点", chatCompletionsUrl)
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "复制 Chat 端点")
+                    }
+                }
+
+                if (settings.authEnabled && settings.authToken.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Authorization: Bearer ${settings.authToken.take(8)}…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            copyText("Token", settings.authToken)
+                        }) {
+                            Text("复制 Token")
+                        }
+                    }
                 }
             }
         }
