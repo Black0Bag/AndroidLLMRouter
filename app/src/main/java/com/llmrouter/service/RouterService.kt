@@ -86,17 +86,21 @@ class RouterService : Service() {
                     httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
                     httpServer?.start(SOCKET_READ_TIMEOUT)
                     serverStarted = true
+                    lastStartError = null
                 } catch (e1: Exception) {
                     android.util.Log.w("RouterService", "HTTP 服务器首次启动失败，重试", e1)
+                    lastStartError = "首次启动 HTTP 服务器失败：${e1.stackTraceToString()}"
                     try {
                         httpServer?.stop()
                         httpServer = null
                         httpServer = HttpApiServer(settings.serverPort, relayHandler, app.settingsRepository)
                         httpServer?.start(SOCKET_READ_TIMEOUT)
                         serverStarted = true
+                        lastStartError = null
                     } catch (e2: Exception) {
                         // 重试仍失败：记录日志，服务继续运行（健康检查/通知仍可用）
                         android.util.Log.e("RouterService", "HTTP 服务器启动失败：端口 ${settings.serverPort} 可能被占用", e2)
+                        lastStartError = "HTTP 服务器启动失败（端口 ${settings.serverPort} 可能被占用）：\n${e2.stackTraceToString()}"
                     }
                 }
 
@@ -108,6 +112,7 @@ class RouterService : Service() {
             }
         } catch (e: Exception) {
             android.util.Log.e("RouterService", "服务启动流程异常（已捕获）", e)
+            lastStartError = "服务启动流程异常：\n${e.stackTraceToString()}"
         }
     }
 
@@ -186,6 +191,10 @@ class RouterService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val SOCKET_READ_TIMEOUT = 10000
+
+        /** v0.6.2: 最近一次启动失败详情（供 UI 诊断弹窗展示/复制），成功启动后清空 */
+        @Volatile
+        var lastStartError: String? = null
 
         fun start(context: Context) {
             val intent = Intent(context, RouterService::class.java)

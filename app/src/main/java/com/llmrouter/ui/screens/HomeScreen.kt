@@ -9,10 +9,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.llmrouter.R
@@ -42,6 +45,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val isRunning by viewModel.isServiceRunning.collectAsState()
     val isStarting by viewModel.isServiceStarting.collectAsState()
+    val serviceError by viewModel.serviceError.collectAsState()
     val stats by viewModel.routeStats.collectAsState()
     val channels by viewModel.channels.collectAsState()
     val recentLogs by viewModel.recentLogs.collectAsState()
@@ -351,6 +355,57 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // v0.6.2: 服务启动失败诊断弹窗（含复制按钮）
+    serviceError?.let { errorLog ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearServiceError() },
+            title = {
+                Text("服务启动失败", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                ) {
+                    Text(
+                        "详细日志如下，请复制并发送给小万分析：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SelectionContainer {
+                        Text(
+                            errorLog,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("llmrouter_diagnose", errorLog))
+                    Toast.makeText(context, "诊断日志已复制", Toast.LENGTH_SHORT).show()
+                    viewModel.clearServiceError()
+                }) {
+                    Text("复制日志")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.clearServiceError() }) {
+                    Text("关闭")
+                }
+            }
+        )
     }
 }
 

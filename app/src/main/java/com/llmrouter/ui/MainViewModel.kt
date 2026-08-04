@@ -143,6 +143,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isServiceStarting = MutableStateFlow(false)
     val isServiceStarting: StateFlow<Boolean> = _isServiceStarting
 
+    /** v0.6.2: 服务启动失败诊断日志（弹窗展示 + 一键复制） */
+    private val _serviceError = MutableStateFlow<String?>(null)
+    val serviceError: StateFlow<String?> = _serviceError
+
+    fun clearServiceError() {
+        _serviceError.value = null
+    }
+
     val apiEndpoint: String
         get() = "http://${RouterService.getLocalIpAddress()}:${settings.value.serverPort}"
 
@@ -355,9 +363,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
+                    // v0.6.2: 组装失败诊断日志，弹窗展示可复制
+                    val detail = buildString {
+                        appendLine("========== 服务启动失败诊断 ==========")
+                        appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+                        appendLine("Android: ${android.os.Build.VERSION.SDK_INT}")
+                        appendLine("应用版本: 0.6.2")
+                        appendLine("目标端口: $port")
+                        appendLine("活跃渠道数: ${channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }}")
+                        appendLine("------------------------------------")
+                        val inner = RouterService.lastStartError
+                        if (inner != null) {
+                            appendLine("【RouterService 内部错误】")
+                            appendLine(inner)
+                        } else {
+                            appendLine("【RouterService 无内部错误记录】")
+                            appendLine("8 秒内轮询 4 次，端口 $port 均未监听。")
+                            appendLine("可能原因：服务进程未启动 / 权限被系统拦截 / 端口被占用")
+                        }
+                    }
+                    _serviceError.value = detail.toString()
                     Toast.makeText(
                         context,
-                        "服务启动失败：端口 $port 未监听，请检查端口是否被占用",
+                        "服务启动失败，请查看诊断日志",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -365,6 +393,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             _isServiceStarting.value = false
             android.util.Log.e("MainViewModel", "启动服务异常", e)
+            _serviceError.value = buildString {
+                appendLine("========== 启动服务异常 ==========")
+                appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+                appendLine("------------------------------------")
+                appendLine(e.stackTraceToString())
+            }
             Toast.makeText(
                 context,
                 "启动失败：${e.message ?: e.javaClass.simpleName}",
