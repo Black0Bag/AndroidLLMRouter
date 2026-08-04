@@ -233,6 +233,10 @@ class RelayHandler(
     private fun buildUrl(baseUrl: String, path: String): String {
         val base = baseUrl.trimEnd('/')
         val p = if (path.startsWith("/")) path else "/$path"
+        // 去重 /v1 后缀（与 ViewModel.buildApiUrl 逻辑一致）
+        if (base.endsWith("/v1") && p.startsWith("/v1/")) {
+            return base + p.substring(3)
+        }
         return "$base$p"
     }
 

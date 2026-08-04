@@ -281,12 +281,30 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
 
     fun startService() {
         RouterService.start(app)
-        _isServiceRunning.value = true
+        // 延迟 2 秒后检测端口是否在监听，确保 HTTP 服务器已启动
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000)
+            val port = settings.value.serverPort
+            val isListening = checkPortListening(port)
+            _isServiceRunning.value = isListening
+        }
     }
 
     fun stopService() {
         RouterService.stop(app)
         _isServiceRunning.value = false
+    }
+
+    /** 检测本地端口是否在监听 */
+    private suspend fun checkPortListening(port: Int): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", port), 1000)
+            socket.close()
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     // === 设置操作 ===

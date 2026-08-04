@@ -13,19 +13,22 @@ import java.io.InputStream
  *
  * 端点：
  * - GET  /v1/models           — 列出所有可用模型
- * - POST /v1/chat/completions — 聊天补全（支持 streaming）
+ * - POST /v11/chat/completions — 聊天补全（支持 streaming）
  * - POST /v1/embeddings       — 文本嵌入
  * - POST /v1/completions      — 文本补全
  * - GET  /health              — 健康检查
  * - GET  /                    — 服务信息
  *
  * 鉴权：可选，通过 Authorization: Bearer <token> 头验证
+ *
+ * 关键修复：NanoHTTPD(port) 默认只绑定 localhost，外部设备连不上。
+ * 改用 NanoHTTPD("0.0.0.0", port) 显式绑定所有网卡，确保局域网可访问。
  */
 class HttpApiServer(
     private val port: Int,
     private val relayHandler: RelayHandler,
     private val settingsRepository: SettingsRepository
-) : NanoHTTPD(port) {
+) : NanoHTTPD("0.0.0.0", port) {
 
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri ?: "/"
