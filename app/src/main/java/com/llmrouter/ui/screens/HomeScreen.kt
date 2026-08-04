@@ -4,6 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,6 +41,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val isRunning by viewModel.isServiceRunning.collectAsState()
+    val isStarting by viewModel.isServiceStarting.collectAsState()
     val stats by viewModel.routeStats.collectAsState()
     val channels by viewModel.channels.collectAsState()
     val recentLogs by viewModel.recentLogs.collectAsState()
@@ -80,8 +86,11 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = if (isRunning) stringResource(R.string.service_running)
-                           else stringResource(R.string.service_stopped),
+                    text = when {
+                        isStarting -> "正在启动服务…"
+                        isRunning -> stringResource(R.string.service_running)
+                        else -> stringResource(R.string.service_stopped)
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = if (isRunning)
@@ -102,22 +111,48 @@ fun HomeScreen(
                             }
                         }
                     },
+                    enabled = !isStarting,
                     modifier = Modifier.fillMaxWidth(),
                     colors = if (isRunning)
                         ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     else
                         ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(
-                        if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                        contentDescription = null
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (isRunning) stringResource(R.string.stop_service)
-                        else stringResource(R.string.start_service),
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    AnimatedContent(
+                        targetState = isStarting,
+                        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
+                        label = "serviceButton"
+                    ) { starting ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (starting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "启动中…",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                Icon(
+                                    if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                                    contentDescription = null
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (isRunning) stringResource(R.string.stop_service)
+                                    else stringResource(R.string.start_service),
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

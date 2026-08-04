@@ -1,5 +1,7 @@
 package com.llmrouter.ui
 
+import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.llmrouter.LlmRouterApp
@@ -10,6 +12,7 @@ import com.llmrouter.health.HealthChecker
 import com.llmrouter.router.RouterEngine
 import com.llmrouter.service.RouterService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,7 +45,23 @@ data class FetchModelsResult(
     val errorMessage: String? = null
 )
 
-class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    /**
+     * v0.6.1: 修复启动白屏崩溃
+     *
+     * 主构造函数必须声明为 (Application) 签名！AndroidViewModelFactory 通过反射
+     * `modelClass.getConstructor(Application::class.java)` 精确匹配来创建实例。
+     *
+     * 之前的 bug：主构造函数是 `(LlmRouterApp)`，Kotlin 生成的 JVM 签名是
+     * `MainViewModel(LlmRouterApp)`，反射按 Application.class 精确匹配失败，
+     * 抛 NoSuchMethodException → App 启动即崩溃（白屏/无响应）。
+     *
+     * 崩溃日志：
+     *   Caused by: java.lang.NoSuchMethodException:
+     *   com.llmrouter.ui.MainViewModel.<init> [class android.app.Application]
+     */
+    private val app = application as LlmRouterApp
 
     private val routerEngine = RouterEngine(app.channelRepository, app.settingsRepository)
     private val healthChecker = HealthChecker(routerEngine, app.channelRepository, app.settingsRepository)
@@ -119,6 +138,10 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
 
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning
+
+    /** v0.6.1: 服务启动中状态（用于 UI 过渡动画/进度条，防止重复点击） */
+    private val _isServiceStarting = MutableStateFlow(false)
+    val isServiceStarting: StateFlow<Boolean> = _isServiceStarting
 
     val apiEndpoint: String
         get() = "http://${RouterService.getLocalIpAddress()}:${settings.value.serverPort}"
@@ -302,20 +325,68 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
 
     // === 服务操作 ===
 
+    /**
+     * v0.6.1: 启动服务 + 进度反馈
+     * - try-catch 兜底（startForegroundService 在后台受限时抛异常，不再无声崩溃）
+     * - isStarting 状态驱动 UI 进度条
+     * - 轮询检测端口（2s × 4 次，最多 8 秒），避免服务启动稍慢被误判失败
+     * - Toast 反馈成功/失败原因
+     */
     fun startService() {
-        RouterService.start(app)
-        // 延迟 2 秒后检测端口是否在监听，确保 HTTP 服务器已启动
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(2000)
-            val port = settings.value.serverPort
-            val isListening = checkPortListening(port)
-            _isServiceRunning.value = isListening
+        if (_isServiceStarting.value) return // 防重复点击
+        val context = getApplication<LlmRouterApp>()
+        try {
+            _isServiceStarting.value = true
+            RouterService.start(context)
+            viewModelScope.launch {
+                val port = settings.value.serverPort
+                var listening = false
+                repeat(4) {
+                    delay(2000)
+                    listening = checkPortListening(port)
+                    if (listening) return@repeat
+                }
+                _isServiceRunning.value = listening
+                _isServiceStarting.value = false
+                if (listening) {
+                    Toast.makeText(
+                        context,
+                        "路由服务已启动（端口 $port）",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "服务启动失败：端口 $port 未监听，请检查端口是否被占用",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        } catch (e: Exception) {
+            _isServiceStarting.value = false
+            android.util.Log.e("MainViewModel", "启动服务异常", e)
+            Toast.makeText(
+                context,
+                "启动失败：${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
     fun stopService() {
-        RouterService.stop(app)
-        _isServiceRunning.value = false
+        val context = getApplication<LlmRouterApp>()
+        try {
+            RouterService.stop(context)
+            _isServiceRunning.value = false
+            Toast.makeText(context, "路由服务已停止", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MainViewModel", "停止服务异常", e)
+            Toast.makeText(
+                context,
+                "停止失败：${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     /** 检测本地端口是否在监听 */
