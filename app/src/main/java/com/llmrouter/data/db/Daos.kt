@@ -63,6 +63,24 @@ interface RouteLogDao {
     @Query("SELECT AVG(responseTime) FROM route_logs WHERE success = 1")
     fun getAvgResponseTime(): Flow<Float?>
 
+    @Query("SELECT SUM(inputTokens) FROM route_logs WHERE success = 1")
+    fun getTotalInputTokens(): Flow<Int?>
+
+    @Query("SELECT SUM(outputTokens) FROM route_logs WHERE success = 1")
+    fun getTotalOutputTokens(): Flow<Int?>
+
+    @Query("SELECT SUM(totalTokens) FROM route_logs WHERE success = 1")
+    fun getTotalTokensUsed(): Flow<Int?>
+
+    @Query("SELECT model, COUNT(*) as cnt, SUM(totalTokens) as tokens FROM route_logs WHERE success = 1 GROUP BY model ORDER BY cnt DESC")
+    fun getModelUsageStats(): Flow<List<ModelUsageStat>>
+
     @Query("DELETE FROM route_logs WHERE timestamp < :before")
     suspend fun cleanOldLogs(before: Long)
 }
+
+data class ModelUsageStat(
+    val model: String,
+    val cnt: Int,
+    val tokens: Int?
+)

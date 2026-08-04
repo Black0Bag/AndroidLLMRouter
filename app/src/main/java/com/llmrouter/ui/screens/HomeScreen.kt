@@ -255,6 +255,30 @@ fun HomeScreen(
             )
         }
 
+        Spacer(Modifier.height(8.dp))
+
+        // === Token 用量卡片 ===
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatCard(
+                title = "输入 Token",
+                value = if (stats.totalInputTokens > 0) stats.totalInputTokens.toString() else "—",
+                modifier = Modifier.weight(1f)
+            )
+            StatCard(
+                title = "输出 Token",
+                value = if (stats.totalOutputTokens > 0) stats.totalOutputTokens.toString() else "—",
+                modifier = Modifier.weight(1f)
+            )
+            StatCard(
+                title = "总 Token",
+                value = if (stats.totalTokensUsed > 0) stats.totalTokensUsed.toString() else "—",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
         Spacer(Modifier.height(16.dp))
 
         // === 渠道健康状态 ===
@@ -386,6 +410,13 @@ private fun LogItem(log: RouteLogEntity) {
                 "${log.responseTime}ms",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (log.totalTokens > 0) {
+            Text(
+                "${log.totalTokens} tokens",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
             )
         }
     }

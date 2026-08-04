@@ -9,7 +9,7 @@ import com.llmrouter.data.model.RouteLogEntity
 
 @Database(
     entities = [ChannelEntity::class, RouteLogEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -63,6 +63,12 @@ fun ChannelEditScreen(
     var keyMode by remember { mutableStateOf(existingChannel?.keyMode ?: "random") }
     var testModel by remember { mutableStateOf(existingChannel?.testModel ?: "") }
 
+    // === v0.6.0 新增字段 ===
+    var type by remember { mutableStateOf(existingChannel?.type ?: "openai") }
+    var modelMapping by remember { mutableStateOf(existingChannel?.modelMapping ?: "") }
+    var statusCodeMapping by remember { mutableStateOf(existingChannel?.statusCodeMapping ?: "") }
+    var typeExpanded by remember { mutableStateOf(false) }
+
     var nameError by remember { mutableStateOf(false) }
     var baseUrlError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -86,6 +92,44 @@ fun ChannelEditScreen(
             label = { Text(stringResource(R.string.channel_name)) },
             isError = nameError, modifier = Modifier.fillMaxWidth(), singleLine = true
         )
+        Spacer(Modifier.height(12.dp))
+
+        // === 渠道类型 ===
+        Box {
+            OutlinedTextField(
+                value = ChannelEntity.CHANNEL_TYPES.find { it.first == type }?.second ?: type,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("渠道类型") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { typeExpanded = true },
+                trailingIcon = {
+                    Icon(
+                        imageVector = if (typeExpanded) Icons.Filled.Close else Icons.Filled.PlayArrow,
+                        contentDescription = "展开",
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { typeExpanded = !typeExpanded }
+                    )
+                },
+                singleLine = true
+            )
+            DropdownMenu(
+                expanded = typeExpanded,
+                onDismissRequest = { typeExpanded = false }
+            ) {
+                ChannelEntity.CHANNEL_TYPES.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            type = value
+                            typeExpanded = false
+                        }
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         // === 基础 URL ===
@@ -345,6 +389,51 @@ fun ChannelEditScreen(
             Text(stringResource(R.string.auto_ban), style = MaterialTheme.typography.bodyLarge)
             Switch(checked = autoBan, onCheckedChange = { autoBan = it })
         }
+        Spacer(Modifier.height(12.dp))
+
+        // === 模型映射 ===
+        Text(
+            "模型映射",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            "请求某个模型时，将其替换为映射后的名称。例如 {\"gpt-4\":\"gpt-4o\"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        OutlinedTextField(
+            value = modelMapping,
+            onValueChange = { modelMapping = it },
+            label = { Text("模型映射 JSON") },
+            placeholder = { Text("{\"gpt-4\":\"gpt-4o\"}") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            maxLines = 4
+        )
+        Spacer(Modifier.height(12.dp))
+
+        // === 状态码映射 ===
+        Text(
+            "状态码映射",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            "将上游返回的状态码映射为自定义状态码。例如 {\"429\":\"529\"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        OutlinedTextField(
+            value = statusCodeMapping,
+            onValueChange = { statusCodeMapping = it },
+            label = { Text("状态码映射 JSON") },
+            placeholder = { Text("{\"429\":\"529\"}") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
         Spacer(Modifier.height(24.dp))
 
         // 保存/取消
@@ -373,7 +462,10 @@ fun ChannelEditScreen(
                         weight = weight.toIntOrNull() ?: 1,
                         autoBan = autoBan,
                         keyMode = keyMode,
-                        testModel = testModel
+                        testModel = testModel,
+                        type = type,
+                        modelMapping = modelMapping.trim(),
+                        statusCodeMapping = statusCodeMapping.trim()
                     )
 
                     scope.launch {
@@ -384,7 +476,8 @@ fun ChannelEditScreen(
                                 name, baseUrl, validKeys, allModels, disabledModels,
                                 priority.toIntOrNull() ?: 0,
                                 weight.toIntOrNull() ?: 1,
-                                autoBan, keyMode, testModel
+                                autoBan, keyMode, testModel,
+                                type, modelMapping.trim(), statusCodeMapping.trim()
                             ) { onSaved() }
                         }
                     }

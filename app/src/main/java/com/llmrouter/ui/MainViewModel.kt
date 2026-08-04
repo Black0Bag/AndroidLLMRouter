@@ -24,7 +24,10 @@ data class RouteStats(
     val totalRequests: Int = 0,
     val successCount: Int = 0,
     val avgResponseTime: Float = 0f,
-    val activeChannels: Int = 0
+    val activeChannels: Int = 0,
+    val totalInputTokens: Int = 0,
+    val totalOutputTokens: Int = 0,
+    val totalTokensUsed: Int = 0
 )
 
 data class KeyTestResult(
@@ -94,6 +97,20 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
             successCount = success,
             avgResponseTime = avgTime ?: 0f,
             activeChannels = channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }
+        )
+    }.combine(
+        combine(
+            app.database.routeLogDao().getTotalInputTokens(),
+            app.database.routeLogDao().getTotalOutputTokens(),
+            app.database.routeLogDao().getTotalTokensUsed()
+        ) { input, output, total ->
+            Triple(input ?: 0, output ?: 0, total ?: 0)
+        }
+    ) { stats, tokens ->
+        stats.copy(
+            totalInputTokens = tokens.first,
+            totalOutputTokens = tokens.second,
+            totalTokensUsed = tokens.third
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RouteStats())
 
@@ -214,12 +231,15 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
         baseUrl: String,
         apiKeys: List<String>,
         models: List<String>,
-        disabledModels: Set<String>,
+        disabledModels: List<String>,
         priority: Int,
         weight: Int,
         autoBan: Boolean,
         keyMode: String,
         testModel: String,
+        type: String,
+        modelMapping: String,
+        statusCodeMapping: String,
         onDone: () -> Unit
     ) {
         viewModelScope.launch {
@@ -234,7 +254,10 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                     weight = weight,
                     autoBan = autoBan,
                     keyMode = keyMode,
-                    testModel = testModel
+                    testModel = testModel,
+                    type = type,
+                    modelMapping = modelMapping,
+                    statusCodeMapping = statusCodeMapping
                 )
             )
             routerEngine.refreshCache()
@@ -346,6 +369,9 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                     chJson.put("autoBan", ch.autoBan)
                     chJson.put("keyMode", ch.keyMode)
                     chJson.put("testModel", ch.testModel)
+                    chJson.put("type", ch.type)
+                    chJson.put("modelMapping", ch.modelMapping)
+                    chJson.put("statusCodeMapping", ch.statusCodeMapping)
                     channelsArray.put(chJson)
                 }
 
@@ -360,7 +386,7 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                 settingsJson.put("routeMode", settings.routeMode)
 
                 val exportJson = org.json.JSONObject()
-                exportJson.put("version", "0.4.0")
+                exportJson.put("version", "0.6.0")
                 exportJson.put("exportTime", System.currentTimeMillis())
                 exportJson.put("channels", channelsArray)
                 exportJson.put("settings", settingsJson)
@@ -396,7 +422,10 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
                             weight = ch.optInt("weight", 1),
                             autoBan = ch.optBoolean("autoBan", true),
                             keyMode = ch.optString("keyMode", "random"),
-                            testModel = ch.optString("testModel", "")
+                            testModel = ch.optString("testModel", ""),
+                            type = ch.optString("type", "openai"),
+                            modelMapping = ch.optString("modelMapping", ""),
+                            statusCodeMapping = ch.optString("statusCodeMapping", "")
                         )
                     )
                 }
