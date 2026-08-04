@@ -47,11 +47,19 @@ class RouterService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // v0.6.3: 前台服务启动加固
+        // Android 14+ 必须声明 FGS 类型（已在 Manifest 中声明 dataSync）；
+        // Android 13+ 未授予通知权限时部分 ROM 直接杀进程。
+        // 任何失败都要记录 lastStartError 并继续启动 HTTP 服务器。
+        var foregroundOk = false
         try {
             startForeground(NOTIFICATION_ID, buildNotification(0, 0, lastKnownPort))
+            foregroundOk = true
+            lastStartError = null
         } catch (e: Exception) {
-            // Android 12+ 后台启动前台服务可能抛异常，捕获避免崩溃
             android.util.Log.e("RouterService", "startForeground 失败", e)
+            lastStartError = "startForeground 失败：${e.stackTraceToString()}\n可能原因：未授予通知权限/系统后台限制"
+            // 即使 startForeground 失败，仍继续尝试启动 HTTP 服务器
         }
 
         scope.launch {

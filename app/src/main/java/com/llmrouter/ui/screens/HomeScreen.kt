@@ -3,7 +3,11 @@ package com.llmrouter.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +50,28 @@ fun HomeScreen(
     val isRunning by viewModel.isServiceRunning.collectAsState()
     val isStarting by viewModel.isServiceStarting.collectAsState()
     val serviceError by viewModel.serviceError.collectAsState()
+    val requestPermission by viewModel.requestNotificationPermission.collectAsState()
+
+    // v0.6.3: Android 13+ 通知权限请求 launcher
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.notificationPermissionHandled()
+        if (granted) {
+            Toast.makeText(context, "通知权限已授予，请再次点击启动服务", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "未授予通知权限，服务可能无法启动", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // 当需要请求权限时自动触发
+    LaunchedEffect(requestPermission) {
+        if (requestPermission) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
     val stats by viewModel.routeStats.collectAsState()
     val channels by viewModel.channels.collectAsState()
     val recentLogs by viewModel.recentLogs.collectAsState()

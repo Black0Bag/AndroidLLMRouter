@@ -151,6 +151,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _serviceError.value = null
     }
 
+    /** v0.6.3: 请求通知权限信号（HomeScreen 监听后弹出系统授权 Dialog） */
+    private val _requestNotificationPermission = MutableStateFlow(false)
+    val requestNotificationPermission: StateFlow<Boolean> = _requestNotificationPermission
+
+    fun notificationPermissionHandled() {
+        _requestNotificationPermission.value = false
+    }
+
     val apiEndpoint: String
         get() = "http://${RouterService.getLocalIpAddress()}:${settings.value.serverPort}"
 
@@ -334,15 +342,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // === 服务操作 ===
 
     /**
-     * v0.6.1: 启动服务 + 进度反馈
-     * - try-catch 兜底（startForegroundService 在后台受限时抛异常，不再无声崩溃）
-     * - isStarting 状态驱动 UI 进度条
-     * - 轮询检测端口（2s × 4 次，最多 8 秒），避免服务启动稍慢被误判失败
-     * - Toast 反馈成功/失败原因
+     * v0.6.3: 启动服务前检查通知权限 + 诊断反馈
      */
     fun startService() {
-        if (_isServiceStarting.value) return // 防重复点击
+        if (_isServiceStarting.value) return
         val context = getApplication<LlmRouterApp>()
+
+        // Android 13+ 检查通知权限
+        val permissionReq = startServiceWithPermissionCheck(context)
+        if (!permissionReq) return
+
         try {
             _isServiceStarting.value = true
             RouterService.start(context)
@@ -357,20 +366,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isServiceRunning.value = listening
                 _isServiceStarting.value = false
                 if (listening) {
-                    Toast.makeText(
-                        context,
-                        "路由服务已启动（端口 $port）",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    val innerErr = RouterService.lastStartError
+                    if (innerErr != null) {
+                        _serviceError.value = buildString {
+                            appendLine("========== 服务启动警告 ==========")
+                            appendLine("端口已监听，但 RouterService 内部有警告：")
+                            appendLine("------------------------------------")
+                            appendLine(innerErr)
+                        }
+                    } else {
+                        Toast.makeText(context, "路由服务已启动（端口 $port）", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
-                    // v0.6.2: 组装失败诊断日志，弹窗展示可复制
                     val detail = buildString {
                         appendLine("========== 服务启动失败诊断 ==========")
                         appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
                         appendLine("Android: ${android.os.Build.VERSION.SDK_INT}")
-                        appendLine("应用版本: 0.6.2")
+                        appendLine("应用版本: 0.6.3")
                         appendLine("目标端口: $port")
                         appendLine("活跃渠道数: ${channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }}")
+                        appendLine("通知权限: ${if (context.hasNotificationPermission()) "已授予" else "未授予"}")
                         appendLine("------------------------------------")
                         val inner = RouterService.lastStartError
                         if (inner != null) {
@@ -379,15 +394,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             appendLine("【RouterService 无内部错误记录】")
                             appendLine("8 秒内轮询 4 次，端口 $port 均未监听。")
-                            appendLine("可能原因：服务进程未启动 / 权限被系统拦截 / 端口被占用")
+                            appendLine("建议检查：")
+                            appendLine("  1. 是否已授予通知权限（设置 → LLM 路由器 → 通知 → 允许）")
+                            appendLine("  2. 端口 8080 是否被其他应用占用")
+                            appendLine("  3. 系统是否限制了后台运行（MIUI/ColorOS 等需手动开启自启动）")
                         }
                     }
                     _serviceError.value = detail.toString()
-                    Toast.makeText(
-                        context,
-                        "服务启动失败，请查看诊断日志",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(context, "服务启动失败，请查看诊断日志", Toast.LENGTH_LONG).show()
                 }
             }
         } catch (e: Exception) {
@@ -399,12 +413,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 appendLine("------------------------------------")
                 appendLine(e.stackTraceToString())
             }
-            Toast.makeText(
-                context,
-                "启动失败：${e.message ?: e.javaClass.simpleName}",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "启动失败：${e.message ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    /**
+     * v0.6.3: 检查通知权限（Android 13+）
+     * 未授权时设置 _requestNotificationPermission 状态
+     * 引导 HomeScreen 弹出系统原生权限请求
+     */
+    private fun startServiceWithPermissionCheck(context: LlmRouterApp): Boolean {
+        if (!context.hasNotificationPermission()) {
+            _requestNotificationPermission.value = true
+            return false
+        }
+        return true
     }
 
     fun stopService() {
