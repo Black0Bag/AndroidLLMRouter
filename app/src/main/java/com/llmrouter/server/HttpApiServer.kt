@@ -107,7 +107,7 @@ class HttpApiServer(
         if (apiKeyHeader != null && apiKeyHeader == settings.authToken) return true
 
         // 3. ?key=<token> (Gemini 兼容)
-        val queryParam = session.parameters?.get("key")
+        val queryParam = session.parameters?.get("key")?.firstOrNull()
         if (queryParam != null && queryParam == settings.authToken) return true
 
         return false
@@ -217,7 +217,7 @@ class HttpApiServer(
             }
         }
 
-        jsonError(400, "缺少 model 参数")
+        return jsonError(400, "缺少 model 参数")
     }
 
     /** 解析 POST 请求体 */

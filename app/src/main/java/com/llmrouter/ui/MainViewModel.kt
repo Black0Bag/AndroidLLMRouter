@@ -231,7 +231,7 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
         baseUrl: String,
         apiKeys: List<String>,
         models: List<String>,
-        disabledModels: List<String>,
+        disabledModels: Set<String>,
         priority: Int,
         weight: Int,
         autoBan: Boolean,
