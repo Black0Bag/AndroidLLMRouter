@@ -37,6 +37,12 @@ interface ChannelDao {
 
     @Query("UPDATE channels SET usedQuota = usedQuota + 1 WHERE id = :id")
     suspend fun incrementQuota(id: Long)
+
+    @Query("SELECT * FROM channels ORDER BY priority DESC, createdAt ASC")
+    suspend fun getAllChannelsOnce(): List<ChannelEntity>
+
+    @Query("DELETE FROM channels")
+    suspend fun deleteAll()
 }
 
 @Dao

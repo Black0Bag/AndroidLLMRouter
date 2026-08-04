@@ -27,4 +27,26 @@ class ChannelRepository(private val dao: ChannelDao) {
         dao.updateKeyStates(id, keyStates, pollingIndex)
 
     suspend fun incrementQuota(id: Long) = dao.incrementQuota(id)
+
+    // === 配置导出/导入 ===
+
+    suspend fun getAllChannelsOnce(): List<ChannelEntity> = dao.getAllChannelsOnce()
+
+    suspend fun deleteAllChannels() = dao.deleteAll()
+
+    suspend fun importChannels(channels: List<ChannelEntity>) {
+        dao.deleteAll()
+        channels.forEach { ch ->
+            // 导入时重置 id（让 Room 自动生成）、重置运行时状态
+            dao.insert(ch.copy(
+                id = 0,
+                status = ChannelEntity.STATUS_ENABLED,
+                keyStates = "",
+                pollingIndex = 0,
+                usedQuota = 0,
+                responseTime = 0,
+                testTime = 0
+            ))
+        }
+    }
 }

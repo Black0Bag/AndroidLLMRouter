@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -184,6 +185,116 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(8.dp)
             )
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        // === 配置导出/导入 ===
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+        Text("配置管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "导出当前所有渠道和设置到 JSON 文件，方便升级后恢复",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+
+                var exportMsg by remember { mutableStateOf("") }
+                var showImportDialog by remember { mutableStateOf(false) }
+                var importJsonText by remember { mutableStateOf("") }
+                var importMsg by remember { mutableStateOf("") }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.exportConfig { result ->
+                                exportMsg = if (result.success) {
+                                    val context = LocalContext.current
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                        type = "application/json"
+                                        putExtra(android.content.Intent.EXTRA_TEXT, result.json)
+                                    }
+                                    val chooser = android.content.Intent.createChooser(intent, "导出配置").apply {
+                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(chooser)
+                                    "配置已导出（${result.json.length} 字符）"
+                                } else {
+                                    "导出失败：${result.errorMessage}"
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("导出配置")
+                    }
+
+                    OutlinedButton(
+                        onClick = { showImportDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("导入配置")
+                    }
+                }
+
+                if (exportMsg.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(exportMsg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+                if (importMsg.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(importMsg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+
+                if (showImportDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showImportDialog = false; importMsg = "" },
+                        title = { Text("导入配置") },
+                        text = {
+                            Column {
+                                Text(
+                                    "粘贴之前导出的 JSON 配置。注意：导入会覆盖现有所有渠道！",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = importJsonText,
+                                    onValueChange = { importJsonText = it },
+                                    label = { Text("JSON 配置") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 120.dp, max = 300.dp),
+                                    maxLines = 10
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.importConfig(importJsonText) { result ->
+                                    importMsg = if (result.success) {
+                                        "导入成功：${result.channelCount} 个渠道"
+                                    } else {
+                                        "导入失败：${result.errorMessage}"
+                                    }
+                                    showImportDialog = false
+                                }
+                            }) { Text("确认导入") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showImportDialog = false }) { Text("取消") }
+                        }
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(32.dp))

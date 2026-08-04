@@ -304,4 +304,113 @@ class MainViewModel(private val app: LlmRouterApp) : AndroidViewModel(app) {
             onDone()
         }
     }
+
+    // === 配置导出/导入 ===
+
+    data class ExportResult(val success: Boolean, val json: String = "", val errorMessage: String? = null)
+
+    fun exportConfig(onResult: (ExportResult) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val channels = app.channelRepository.getAllChannelsOnce()
+                val settings = app.settingsRepository.getSnapshot()
+
+                val channelsArray = org.json.JSONArray()
+                for (ch in channels) {
+                    val chJson = org.json.JSONObject()
+                    chJson.put("name", ch.name)
+                    chJson.put("baseUrl", ch.baseUrl)
+                    chJson.put("apiKeys", ch.apiKeys)
+                    chJson.put("models", ch.models)
+                    chJson.put("disabledModels", ch.disabledModels)
+                    chJson.put("priority", ch.priority)
+                    chJson.put("weight", ch.weight)
+                    chJson.put("autoBan", ch.autoBan)
+                    chJson.put("keyMode", ch.keyMode)
+                    chJson.put("testModel", ch.testModel)
+                    channelsArray.put(chJson)
+                }
+
+                val settingsJson = org.json.JSONObject()
+                settingsJson.put("serverPort", settings.serverPort)
+                settingsJson.put("authEnabled", settings.authEnabled)
+                settingsJson.put("authToken", settings.authToken)
+                settingsJson.put("retryTimes", settings.retryTimes)
+                settingsJson.put("healthCheckEnabled", settings.healthCheckEnabled)
+                settingsJson.put("healthCheckInterval", settings.healthCheckInterval)
+                settingsJson.put("autoStart", settings.autoStart)
+                settingsJson.put("routeMode", settings.routeMode)
+
+                val exportJson = org.json.JSONObject()
+                exportJson.put("version", "0.4.0")
+                exportJson.put("exportTime", System.currentTimeMillis())
+                exportJson.put("channels", channelsArray)
+                exportJson.put("settings", settingsJson)
+
+                onResult(ExportResult(success = true, json = exportJson.toString(2)))
+            } catch (e: Exception) {
+                onResult(ExportResult(success = false, errorMessage = "${e.javaClass.simpleName}: ${e.message}"))
+            }
+        }
+    }
+
+    data class ImportResult(val success: Boolean, val channelCount: Int = 0, val errorMessage: String? = null)
+
+    fun importConfig(jsonString: String, onResult: (ImportResult) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val root = org.json.JSONObject(jsonString)
+                val channelsArray = root.optJSONArray("channels")
+                    ?: throw IllegalArgumentException("JSON 中缺少 channels 字段")
+                val settingsJson = root.optJSONObject("settings")
+
+                val channels = mutableListOf<ChannelEntity>()
+                for (i in 0 until channelsArray.length()) {
+                    val ch = channelsArray.getJSONObject(i)
+                    channels.add(
+                        ChannelEntity(
+                            name = ch.optString("name", "导入渠道"),
+                            baseUrl = ch.optString("baseUrl", ""),
+                            apiKeys = ch.optString("apiKeys", ""),
+                            models = ch.optString("models", ""),
+                            disabledModels = ch.optString("disabledModels", ""),
+                            priority = ch.optInt("priority", 0),
+                            weight = ch.optInt("weight", 1),
+                            autoBan = ch.optBoolean("autoBan", true),
+                            keyMode = ch.optString("keyMode", "random"),
+                            testModel = ch.optString("testModel", "")
+                        )
+                    )
+                }
+
+                app.channelRepository.importChannels(channels)
+
+                if (settingsJson != null) {
+                    val snapshot = SettingsSnapshot(
+                        serverPort = settingsJson.optInt("serverPort", 8080),
+                        authEnabled = settingsJson.optBoolean("authEnabled", false),
+                        authToken = settingsJson.optString("authToken", ""),
+                        retryTimes = settingsJson.optInt("retryTimes", 3),
+                        healthCheckEnabled = settingsJson.optBoolean("healthCheckEnabled", true),
+                        healthCheckInterval = settingsJson.optInt("healthCheckInterval", 300),
+                        autoStart = settingsJson.optBoolean("autoStart", false),
+                        routeMode = settingsJson.optString("routeMode", "url")
+                    )
+                    app.settingsRepository.setServerPort(snapshot.serverPort)
+                    app.settingsRepository.setAuthEnabled(snapshot.authEnabled)
+                    app.settingsRepository.setAuthToken(snapshot.authToken)
+                    app.settingsRepository.setRetryTimes(snapshot.retryTimes)
+                    app.settingsRepository.setHealthCheckEnabled(snapshot.healthCheckEnabled)
+                    app.settingsRepository.setHealthCheckInterval(snapshot.healthCheckInterval)
+                    app.settingsRepository.setAutoStart(snapshot.autoStart)
+                    app.settingsRepository.setRouteMode(snapshot.routeMode)
+                }
+
+                routerEngine.refreshCache()
+                onResult(ImportResult(success = true, channelCount = channels.size))
+            } catch (e: Exception) {
+                onResult(ImportResult(success = false, errorMessage = "${e.javaClass.simpleName}: ${e.message}"))
+            }
+        }
+    }
 }
