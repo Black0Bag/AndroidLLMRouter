@@ -39,10 +39,29 @@ sealed class Screen(val route: String, val title: Int, val icon: androidx.compos
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        maybeAutoStartService()
         setContent {
             LlmRouterTheme {
                 MainApp()
             }
+        }
+    }
+
+    /**
+     * v0.7.0: autoStart 语义变更——开机自启在 Android 15+ 被系统禁止
+     * （BOOT_COMPLETED 不得启动 dataSync 前台服务），因此改为：
+     * 用户打开 App 时（前台时机，合法）若开启"自动启动"且服务未运行，则自动启动。
+     */
+    private fun maybeAutoStartService() {
+        if (com.llmrouter.service.RouterService.isServerRunning) return
+        val app = application as LlmRouterApp
+        try {
+            val autoStart = kotlinx.coroutines.runBlocking { app.settingsRepository.getSnapshot().autoStart }
+            if (autoStart) {
+                com.llmrouter.service.RouterService.start(this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "autoStart 检查失败", e)
         }
     }
 }

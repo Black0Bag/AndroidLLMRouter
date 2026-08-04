@@ -358,9 +358,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 val port = settings.value.serverPort
                 var listening = false
-                repeat(4) {
-                    delay(2000)
-                    listening = checkPortListening(port)
+                // v0.7.0: 轮询 10 次 x 1s（更快反馈）；直接读服务内部状态更可靠
+                repeat(10) {
+                    delay(1000)
+                    listening = RouterService.isServerRunning || checkPortListening(port)
                     if (listening) return@repeat
                 }
                 _isServiceRunning.value = listening
@@ -382,22 +383,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         appendLine("========== 服务启动失败诊断 ==========")
                         appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
                         appendLine("Android: ${android.os.Build.VERSION.SDK_INT}")
-                        appendLine("应用版本: 0.6.3")
+                        appendLine("应用版本: 0.7.0")
                         appendLine("目标端口: $port")
                         appendLine("活跃渠道数: ${channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }}")
                         appendLine("通知权限: ${if (context.hasNotificationPermission()) "已授予" else "未授予"}")
                         appendLine("------------------------------------")
                         val inner = RouterService.lastStartError
+                        val step = RouterService.lastStartStep
+                        appendLine("【RouterService 内部状态】")
+                        appendLine("启动步骤: $step")
+                        appendLine("服务器监听: ${if (RouterService.isServerRunning) "是" else "否"}")
+                        appendLine("------------------------------------")
                         if (inner != null) {
                             appendLine("【RouterService 内部错误】")
                             appendLine(inner)
                         } else {
                             appendLine("【RouterService 无内部错误记录】")
-                            appendLine("8 秒内轮询 4 次，端口 $port 均未监听。")
+                            appendLine("10 秒内轮询 10 次，端口 $port 均未监听。")
                             appendLine("建议检查：")
-                            appendLine("  1. 是否已授予通知权限（设置 → LLM 路由器 → 通知 → 允许）")
-                            appendLine("  2. 端口 8080 是否被其他应用占用")
-                            appendLine("  3. 系统是否限制了后台运行（MIUI/ColorOS 等需手动开启自启动）")
+                            appendLine("  1. 系统是否限制了后台运行（MIUI/HyperOS 需手动开启自启动与后台弹出）")
+                            appendLine("  2. 端口 $port 是否被其他应用占用")
+                            appendLine("  3. 若启动步骤卡在 3/6，可能是 DataStore 读取异常（已自动兜底默认端口）")
                         }
                     }
                     _serviceError.value = detail.toString()

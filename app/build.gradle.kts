@@ -12,8 +12,8 @@ android {
         applicationId = "com.llmrouter"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.6.3"
+        versionCode = 10
+        versionName = "0.7.0"
     }
 
     buildTypes {
@@ -68,8 +68,8 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    // DataStore（v0.7.0: 1.0.0 → 1.1.3，修复读取协程被取消后 first() 永久挂起的已知缺陷）
+    implementation("androidx.datastore:datastore-preferences:1.1.3")
 
     // OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

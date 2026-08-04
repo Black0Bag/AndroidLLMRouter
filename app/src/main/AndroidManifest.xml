@@ -7,8 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- v0.7.0: 移除 BOOT_COMPLETED。Android 15+ 禁止通过 BOOT_COMPLETED 启动 dataSync 前台服务，
+         开机自启改为"打开 App 时自动续跑"（MainActivity 前台启动，合法） -->
 
     <application
         android:name=".LlmRouterApp"
@@ -35,13 +35,5 @@
             android:name=".service.RouterService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <receiver
-            android:name=".service.BootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>
