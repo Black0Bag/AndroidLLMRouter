@@ -53,7 +53,7 @@ object AppLogger {
     }
 
     fun i(tag: String, msg: String) = append('I', tag, msg, null)
-    fun w(tag: String, msg: String) = append('W', tag, msg, null)
+    fun w(tag: String, msg: String, tr: Throwable? = null) = append('W', tag, msg, tr)
     fun e(tag: String, msg: String, tr: Throwable? = null) = append('E', tag, msg, tr)
     fun d(tag: String, msg: String) = append('D', tag, msg, null)
 
