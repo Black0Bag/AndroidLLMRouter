@@ -44,10 +44,17 @@ object AppLogger {
             file.writeText(content.takeLast(256_000))
         }
         logFile = file
-        writer = FileWriter(file, true)
+        // v0.7.2: 文件初始化失败（外部存储不可写/IO 异常）绝不崩溃 App，
+        // 降级为仅 logcat（bgHandler 不初始化即跳过落盘）。
+        try {
+            writer = FileWriter(file, true)
 
-        val ht = HandlerThread("AppLogger").also { it.start() }
-        bgHandler = Handler(ht.looper)
+            val ht = HandlerThread("AppLogger").also { it.start() }
+            bgHandler = Handler(ht.looper)
+        } catch (e: Exception) {
+            android.util.Log.e("AppLogger", "日志文件初始化失败，降级为仅 logcat", e)
+            return
+        }
 
         i("AppLogger", "日志系统启动, 文件=${file.absolutePath}")
     }
@@ -83,7 +90,10 @@ object AppLogger {
                 try {
                     writer.write(line)
                     writer.flush()
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    // v0.7.2: 不再静默吞异常，写盘失败打 logcat 至少留痕
+                    android.util.Log.e("AppLogger", "日志写盘失败", e)
+                }
             }
         }
     }

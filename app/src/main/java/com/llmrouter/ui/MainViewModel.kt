@@ -391,7 +391,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         appendLine("========== 服务启动失败诊断 ==========")
                         appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
                         appendLine("Android: ${android.os.Build.VERSION.SDK_INT}")
-                        appendLine("应用版本: 0.7.0")
+                        appendLine("应用版本: 0.7.2")
                         appendLine("目标端口: $port")
                         appendLine("活跃渠道数: ${channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }}")
                         appendLine("通知权限: ${if (context.hasNotificationPermission()) "已授予" else "未授予"}")

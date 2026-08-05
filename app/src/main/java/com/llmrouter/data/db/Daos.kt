@@ -43,6 +43,16 @@ interface ChannelDao {
 
     @Query("DELETE FROM channels")
     suspend fun deleteAll()
+
+    /**
+     * v0.7.2: 事务化"清空+批量导入"，中途失败自动回滚，避免数据全丢。
+     * importChannels 改用本方法（原 deleteAll + 逐条 insert 无事务保护）。
+     */
+    @Transaction
+    suspend fun replaceAll(channels: List<ChannelEntity>) {
+        deleteAll()
+        channels.forEach { insert(it) }
+    }
 }
 
 @Dao

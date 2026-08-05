@@ -301,7 +301,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
         Spacer(Modifier.height(16.dp))
         Text("关于", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("LLM 路由器 v0.7.1", style = MaterialTheme.typography.bodyMedium)
+        Text("LLM 路由器 v0.7.2", style = MaterialTheme.typography.bodyMedium)
         Text("将 NEW API 核心功能落地为安卓原生 APP", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("支持 URL 维度/模型维度路由、多 Key 轮换、健康检查、自动故障切换", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

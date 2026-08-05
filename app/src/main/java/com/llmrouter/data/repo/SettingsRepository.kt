@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -65,22 +66,20 @@ class SettingsRepository(private val context: Context) {
 
     /** 同步获取当前设置快照 */
     suspend fun getSnapshot(): SettingsSnapshot {
-        val prefs = context.dataStore.data
-        var snapshot = SettingsSnapshot()
-        prefs.collect { p ->
-            snapshot = SettingsSnapshot(
-                serverPort = p[Keys.SERVER_PORT] ?: 8080,
-                authEnabled = p[Keys.AUTH_ENABLED] ?: false,
-                authToken = p[Keys.AUTH_TOKEN] ?: "",
-                retryTimes = p[Keys.RETRY_TIMES] ?: 3,
-                healthCheckEnabled = p[Keys.HEALTH_CHECK_ENABLED] ?: true,
-                healthCheckInterval = p[Keys.HEALTH_CHECK_INTERVAL] ?: 300,
-                autoStart = p[Keys.AUTO_START] ?: false,
-                routeMode = p[Keys.ROUTE_MODE] ?: "url"
-            )
-            return@collect
-        }
-        return snapshot
+        // v0.7.2: 改用 first() 替代 collect+return@collect。
+        // collect 在 DataStore 文件损坏等极端情况下可能永不 emit 导致永久挂起，
+        // first() 语义明确 = 取第一个值即返回，剩余挂起风险由调用方 withTimeout 兜底。
+        val p = context.dataStore.data.first()
+        return SettingsSnapshot(
+            serverPort = p[Keys.SERVER_PORT] ?: 8080,
+            authEnabled = p[Keys.AUTH_ENABLED] ?: false,
+            authToken = p[Keys.AUTH_TOKEN] ?: "",
+            retryTimes = p[Keys.RETRY_TIMES] ?: 3,
+            healthCheckEnabled = p[Keys.HEALTH_CHECK_ENABLED] ?: true,
+            healthCheckInterval = p[Keys.HEALTH_CHECK_INTERVAL] ?: 300,
+            autoStart = p[Keys.AUTO_START] ?: false,
+            routeMode = p[Keys.ROUTE_MODE] ?: "url"
+        )
     }
 }
 

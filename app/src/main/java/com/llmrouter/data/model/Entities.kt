@@ -64,28 +64,35 @@ data class ChannelEntity(
         }
     }
 
+    /** v0.7.2: 缓存的映射 JSON（避免每次请求都 new JSONObject 重复解析） */
+    private val modelMappingJson: JSONObject? by lazy {
+        if (modelMapping.isBlank()) null
+        else try { JSONObject(modelMapping) } catch (e: Exception) { null }
+    }
+
     /**
      * 应用模型映射：将请求中的模型名替换为映射后的名称
      * 例如 mapping = {"gpt-4":"gpt-4o"}，请求 gpt-4 -> 上游收到 gpt-4o
      * 支持链式映射，带循环检测（最多 10 层）
      */
     fun applyModelMapping(model: String): String {
-        if (modelMapping.isBlank()) return model
-        return try {
-            val mapping = JSONObject(modelMapping)
-            var current = model
-            val visited = mutableSetOf(model.lowercase())
-            // 链式映射，最多 10 层防止死循环
-            for (i in 0 until 10) {
-                val mapped = mapping.optString(current, null) ?: break
-                if (mapped.lowercase() in visited) break // 循环检测
-                visited.add(mapped.lowercase())
-                current = mapped
-            }
-            current
-        } catch (e: Exception) {
-            model // 解析失败，返回原始模型名
+        val mapping = modelMappingJson ?: return model
+        var current = model
+        val visited = mutableSetOf(model.lowercase())
+        // 链式映射，最多 10 层防止死循环
+        for (i in 0 until 10) {
+            val mapped = mapping.optString(current, null) ?: break
+            if (mapped.lowercase() in visited) break // 循环检测
+            visited.add(mapped.lowercase())
+            current = mapped
         }
+        return current
+    }
+
+    /** v0.7.2: 缓存的状态码映射 JSON */
+    private val statusCodeMappingJson: JSONObject? by lazy {
+        if (statusCodeMapping.isBlank()) null
+        else try { JSONObject(statusCodeMapping) } catch (e: Exception) { null }
     }
 
     /**
@@ -93,13 +100,8 @@ data class ChannelEntity(
      * 例如 mapping = {"429":"529"}，上游 429 -> 客户端收到 529
      */
     fun applyStatusCodeMapping(statusCode: Int): Int {
-        if (statusCodeMapping.isBlank()) return statusCode
-        return try {
-            val mapping = JSONObject(statusCodeMapping)
-            mapping.optString(statusCode.toString(), null)?.toIntOrNull() ?: statusCode
-        } catch (e: Exception) {
-            statusCode
-        }
+        val mapping = statusCodeMappingJson ?: return statusCode
+        return mapping.optString(statusCode.toString(), null)?.toIntOrNull() ?: statusCode
     }
 
     companion object {

@@ -1,10 +1,12 @@
 package com.llmrouter.server
 
 import com.llmrouter.data.repo.SettingsRepository
+import com.llmrouter.data.repo.SettingsSnapshot
 import com.llmrouter.relay.RelayHandler
 import com.llmrouter.relay.RelayResult
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.io.InputStream
 
@@ -87,7 +89,15 @@ class HttpApiServer(
 
     /** v0.6.0: 多协议鉴权 — Bearer / x-api-key / ?key= */
     private fun checkAuth(session: IHTTPSession): Boolean {
-        val settings = runBlocking { settingsRepository.getSnapshot() }
+        // v0.7.2: DataStore 读取加 5s 硬超时，防止 runBlocking 永久阻塞请求线程
+        val settings = try {
+            runBlocking {
+                withTimeout(5_000) { settingsRepository.getSnapshot() }
+            }
+        } catch (e: Exception) {
+            // 超时/读取异常 → 按"未开启鉴权"放行（与 RouterService 兜底策略一致）
+            SettingsSnapshot()
+        }
         if (!settings.authEnabled) return true
         if (settings.authToken.isBlank()) return true
 

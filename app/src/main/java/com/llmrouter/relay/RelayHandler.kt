@@ -59,6 +59,7 @@ class RelayHandler(
         val settings = settingsRepository.getSnapshot()
         val maxRetries = settings.retryTimes
         var lastError = "未知错误"
+        var lastStatusCode = 502
 
         for (retry in 0..maxRetries) {
             val channel = routerEngine.selectChannel(model, retry, settings.routeMode)
@@ -113,10 +114,11 @@ class RelayHandler(
                     } else {
                         val errorBody = response.body?.string() ?: ""
                         val code = response.code
-                        val mappedCode = channel.applyStatusCodeMapping(code)
+                        lastStatusCode = channel.applyStatusCodeMapping(code)
                         lastError = "上游错误 $code: ${errorBody.take(200)}"
                         handleUpstreamError(channel, keyIndex, code, errorBody, settings)
                         response.close()
+                        if (!shouldRetry(code)) break
                         continue
                     }
                 } else {
@@ -131,9 +133,10 @@ class RelayHandler(
                         channelRepository.incrementQuota(channel.id)
                         return@withContext RelayResult.Json(body)
                     } else {
-                        val mappedCode = channel.applyStatusCodeMapping(response.code)
+                        lastStatusCode = channel.applyStatusCodeMapping(response.code)
                         lastError = "上游错误 ${response.code}: ${body.take(200)}"
                         handleUpstreamError(channel, keyIndex, response.code, body, settings)
+                        if (!shouldRetry(response.code)) break
                         continue
                     }
                 }
@@ -151,8 +154,8 @@ class RelayHandler(
         }
 
         // 记录失败日志
-        logFailure(model, "/v1/chat/completions", lastError, maxRetries)
-        RelayResult.Error(lastError)
+        logFailure(model, "/v1/chat/completions", lastError, maxRetries, lastStatusCode)
+        RelayResult.Error(lastError, lastStatusCode)
     }
 
     /**
@@ -165,6 +168,7 @@ class RelayHandler(
         val settings = settingsRepository.getSnapshot()
         val maxRetries = settings.retryTimes
         var lastError = "未知错误"
+        var lastStatusCode = 502
 
         for (retry in 0..maxRetries) {
             val channel = routerEngine.selectChannel(model, retry, settings.routeMode)
@@ -211,8 +215,10 @@ class RelayHandler(
                     channelRepository.incrementQuota(channel.id)
                     return@withContext RelayResult.Json(body)
                 } else {
+                    lastStatusCode = channel.applyStatusCodeMapping(response.code)
                     lastError = "上游错误 ${response.code}: ${body.take(200)}"
                     handleUpstreamError(channel, keyIndex, response.code, body, settings)
+                    if (!shouldRetry(response.code)) break
                     continue
                 }
             } catch (e: Exception) {
@@ -221,8 +227,8 @@ class RelayHandler(
             }
         }
 
-        logFailure(model, "/v1/completions", lastError, maxRetries)
-        RelayResult.Error(lastError)
+        logFailure(model, "/v1/completions", lastError, maxRetries, lastStatusCode)
+        RelayResult.Error(lastError, lastStatusCode)
     }
 
     /**
@@ -261,6 +267,7 @@ class RelayHandler(
         val settings = settingsRepository.getSnapshot()
         val maxRetries = settings.retryTimes
         var lastError = "未知错误"
+        var lastStatusCode = 502
 
         for (retry in 0..maxRetries) {
             val channel = routerEngine.selectChannel(model, retry, settings.routeMode)
@@ -307,8 +314,10 @@ class RelayHandler(
                     channelRepository.incrementQuota(channel.id)
                     return@withContext RelayResult.Json(body)
                 } else {
+                    lastStatusCode = channel.applyStatusCodeMapping(response.code)
                     lastError = "上游错误 ${response.code}"
                     handleUpstreamError(channel, keyIndex, response.code, body, settings)
+                    if (!shouldRetry(response.code)) break
                     continue
                 }
             } catch (e: Exception) {
@@ -317,8 +326,8 @@ class RelayHandler(
             }
         }
 
-        logFailure(model, "/v1/embeddings", lastError, maxRetries)
-        RelayResult.Error(lastError)
+        logFailure(model, "/v1/embeddings", lastError, maxRetries, lastStatusCode)
+        RelayResult.Error(lastError, lastStatusCode)
     }
 
     // === 内部方法 ===
@@ -382,20 +391,6 @@ class RelayHandler(
     }
 
     /**
-     * v0.6.0: 异常处理 — 不再禁用 Key
-     *
-     * 超时/连接异常是网络问题，不是 Key 问题，禁用 Key 会导致恢复后无法使用
-     */
-    private suspend fun handleException(
-        channel: ChannelEntity,
-        keyIndex: Int,
-        e: Exception,
-        settings: SettingsSnapshot
-    ) {
-        // 异常不禁用 Key，只用于记录日志
-    }
-
-    /**
      * v0.6.0: 从上游响应中解析 Token 用量
      * OpenAI 格式: {"usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
      */
@@ -444,7 +439,13 @@ class RelayHandler(
     }
 
     /** 记录失败日志 */
-    private suspend fun logFailure(model: String, endpoint: String, error: String, retryCount: Int) {
+    private suspend fun logFailure(
+        model: String,
+        endpoint: String,
+        error: String,
+        retryCount: Int,
+        statusCode: Int = 502
+    ) {
         routeLogDao.insert(
             com.llmrouter.data.model.RouteLogEntity(
                 model = model,
@@ -453,7 +454,7 @@ class RelayHandler(
                 errorMessage = error.take(300),
                 retryCount = retryCount,
                 apiEndpoint = endpoint,
-                statusCode = 502
+                statusCode = statusCode
             )
         )
     }
@@ -470,6 +471,7 @@ class RelayHandler(
         val settings = settingsRepository.getSnapshot()
         val maxRetries = settings.retryTimes
         var lastError = "未知错误"
+        var lastStatusCode = 502
 
         for (retry in 0..maxRetries) {
             val channel = routerEngine.selectChannel(model, retry, settings.routeMode)
@@ -516,8 +518,10 @@ class RelayHandler(
                     channelRepository.incrementQuota(channel.id)
                     return@withContext RelayResult.Json(body)
                 } else {
+                    lastStatusCode = channel.applyStatusCodeMapping(response.code)
                     lastError = "上游错误 ${response.code}"
                     handleUpstreamError(channel, keyIndex, response.code, body, settings)
+                    if (!shouldRetry(response.code)) break
                     continue
                 }
             } catch (e: Exception) {
@@ -526,7 +530,7 @@ class RelayHandler(
             }
         }
 
-        logFailure(model, endpoint, lastError, maxRetries)
-        RelayResult.Error(lastError)
+        logFailure(model, endpoint, lastError, maxRetries, lastStatusCode)
+        RelayResult.Error(lastError, lastStatusCode)
     }
 }

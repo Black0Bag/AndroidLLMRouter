@@ -101,22 +101,25 @@ class RouterEngine(
      */
     suspend fun selectKey(channel: ChannelEntity): String? {
         return getLock(channel.id).withLock {
-            val keys = channel.keyList()
+            // v0.7.2: 锁内重读 DB 最新实体，避免用调用方传入的过期快照覆盖并发修改
+            // （disableKey 刚写回的禁用状态可能被旧快照回滚）
+            val latest = channelRepository.getChannelById(channel.id) ?: channel
+            val keys = latest.keyList()
             if (keys.isEmpty()) return@withLock null
 
-            val keyStates = parseKeyStates(channel.keyStates, keys.size)
+            val keyStates = parseKeyStates(latest.keyStates, keys.size)
 
-            when (channel.keyMode) {
+            when (latest.keyMode) {
                 "polling" -> {
                     // 轮询：从 pollingIndex 开始环形找下一个启用 Key
-                    var idx = channel.pollingIndex % keys.size
+                    var idx = latest.pollingIndex % keys.size
                     for (i in keys.indices) {
                         val checkIdx = (idx + i) % keys.size
                         if (keyStates[checkIdx].enabled) {
-                            // 更新轮询索引到下一个位置
+                            // 更新轮询索引到下一个位置，并写回当前最新 keyStates（不覆盖并发修改）
                             val nextIndex = (checkIdx + 1) % keys.size
                             channelRepository.updateKeyStates(
-                                channel.id, channel.keyStates, nextIndex
+                                latest.id, serializeKeyStates(keyStates), nextIndex
                             )
                             return@withLock keys[checkIdx]
                         }
@@ -141,8 +144,10 @@ class RouterEngine(
      */
     suspend fun disableKey(channel: ChannelEntity, keyIndex: Int, reason: String) {
         getLock(channel.id).withLock {
-            val keys = channel.keyList()
-            val keyStates = parseKeyStates(channel.keyStates, keys.size).toMutableList()
+            // v0.7.2: 锁内重读 DB 最新实体（与 selectKey 一致），避免基于过期快照覆盖并发修改
+            val latest = channelRepository.getChannelById(channel.id) ?: channel
+            val keys = latest.keyList()
+            val keyStates = parseKeyStates(latest.keyStates, keys.size).toMutableList()
             if (keyIndex in keyStates.indices) {
                 keyStates[keyIndex] = keyStates[keyIndex].copy(
                     enabled = false,
@@ -153,11 +158,11 @@ class RouterEngine(
             // 检查是否所有 Key 都被禁用
             val allDisabled = keyStates.all { !it.enabled }
             val newStates = serializeKeyStates(keyStates)
-            channelRepository.updateKeyStates(channel.id, newStates, channel.pollingIndex)
+            channelRepository.updateKeyStates(latest.id, newStates, latest.pollingIndex)
 
-            if (allDisabled && channel.autoBan) {
+            if (allDisabled && latest.autoBan) {
                 // 所有 Key 都禁用 → 禁用整个渠道
-                channelRepository.updateStatus(channel.id, ChannelEntity.STATUS_AUTO_BANNED)
+                channelRepository.updateStatus(latest.id, ChannelEntity.STATUS_AUTO_BANNED)
             }
         }
     }
