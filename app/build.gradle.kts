@@ -12,8 +12,8 @@ android {
         applicationId = "com.llmrouter"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.7.0"
+        versionCode = 11
+        versionName = "0.7.1"
     }
 
     buildTypes {

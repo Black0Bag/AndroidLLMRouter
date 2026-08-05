@@ -4,6 +4,7 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.llmrouter.AppLogger
 import com.llmrouter.LlmRouterApp
 import com.llmrouter.data.model.ChannelEntity
 import com.llmrouter.data.repo.SettingsSnapshot
@@ -345,12 +346,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * v0.6.3: 启动服务前检查通知权限 + 诊断反馈
      */
     fun startService() {
-        if (_isServiceStarting.value) return
+        if (_isServiceStarting.value) {
+            AppLogger.i("MainViewModel", "服务正在启动中，忽略重复点击")
+            return
+        }
         val context = getApplication<LlmRouterApp>()
 
         // Android 13+ 检查通知权限
         val permissionReq = startServiceWithPermissionCheck(context)
-        if (!permissionReq) return
+        if (!permissionReq) {
+            AppLogger.i("MainViewModel", "通知权限未授予，直接返回（等待用户授权）")
+            return
+        }
+        AppLogger.i("MainViewModel", "开始启动路由服务, port=${settings.value.serverPort}")
 
         try {
             _isServiceStarting.value = true

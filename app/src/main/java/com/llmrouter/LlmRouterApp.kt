@@ -5,10 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.llmrouter.data.db.AppDatabase
 import com.llmrouter.data.repo.ChannelRepository
 import com.llmrouter.data.repo.SettingsRepository
+import com.llmrouter.service.RouterService
+import kotlinx.coroutines.runBlocking
 
 class LlmRouterApp : Application() {
 
@@ -19,7 +23,16 @@ class LlmRouterApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // v0.7.1: 全局日志系统必须在所有其他操作之前初始化
+        AppLogger.init(this)
+        AppLogger.i("LlmRouterApp", "onCreate 开始, version=0.7.1")
+
         createNotificationChannel()
+        AppLogger.i("LlmRouterApp", "通知渠道已创建")
+
+        // v0.7.1: autoStart 在 onCreate 末尾异步执行，绝不阻塞 UI 线程
+        Handler(Looper.getMainLooper()).post { maybeAutoStartService() }
     }
 
     /**
@@ -54,5 +67,28 @@ class LlmRouterApp : Application() {
         const val CHANNEL_ID = "router_service"
         lateinit var instance: LlmRouterApp
             private set
+    }
+
+    /**
+     * v0.7.1: autoStart 在 Handler.post 中调用（不阻塞 onCreate UI 线程）。
+     * Android 15+ 禁止 BOOT_COMPLETED 启动 dataSync FGS，因此改为"打开 App 时自动续跑"。
+     * 日志全程记录到 /sdcard/Android/data/com.llmrouter/files/app_log.txt（adb 可读）。
+     */
+    private fun maybeAutoStartService() {
+        AppLogger.i("LlmRouterApp", "maybeAutoStartService 检查中… isServerRunning=${RouterService.isServerRunning}")
+        if (RouterService.isServerRunning) {
+            AppLogger.i("LlmRouterApp", "服务已运行，跳过 autoStart")
+            return
+        }
+        try {
+            val snap = runBlocking { settingsRepository.getSnapshot() }
+            AppLogger.i("LlmRouterApp", "autoStart 设置值=${snap.autoStart}")
+            if (snap.autoStart) {
+                AppLogger.i("LlmRouterApp", "autoStart=ON，启动 RouterService")
+                RouterService.start(this)
+            }
+        } catch (e: Exception) {
+            AppLogger.e("LlmRouterApp", "autoStart 检查异常", e)
+        }
     }
 }

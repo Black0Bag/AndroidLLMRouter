@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.llmrouter.AppLogger
 import com.llmrouter.LlmRouterApp
 import com.llmrouter.R
 import com.llmrouter.data.repo.SettingsSnapshot
@@ -60,15 +61,15 @@ class RouterService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        android.util.Log.i(TAG, "onStartCommand called, startId=$startId")
+        AppLogger.i(TAG, "onStartCommand called, startId=$startId")
 
         // 前台服务声明（Manifest 已声明 dataSync 类型 + FOREGROUND_SERVICE_DATA_SYNC 权限）
         try {
             startForeground(NOTIFICATION_ID, buildNotification(0, 0, lastKnownPort))
             lastStartError = null
-            android.util.Log.i(TAG, "startForeground OK")
+            AppLogger.i(TAG, "startForeground OK")
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "startForeground 失败", e)
+            AppLogger.e(TAG, "startForeground 失败", e)
             lastStartError = "startForeground 失败：\n${e.stackTraceToString()}\n可能原因：未授予通知权限/系统后台限制"
             // startForeground 失败仍继续尝试启动 HTTP 服务器（文件描述符级服务不依赖通知）
         }
@@ -116,7 +117,7 @@ class RouterService : Service() {
                 server.start(SOCKET_READ_TIMEOUT)
                 started = true
             } catch (e1: Exception) {
-                android.util.Log.w(TAG, "HTTP 首次启动失败，重试一次", e1)
+                AppLogger.w(TAG, "HTTP 首次启动失败，重试一次", e1)
                 lastStartError = "HTTP 首次启动失败：\n${e1.stackTraceToString()}"
                 try {
                     server?.stop()
@@ -124,7 +125,7 @@ class RouterService : Service() {
                     server.start(SOCKET_READ_TIMEOUT)
                     started = true
                 } catch (e2: Exception) {
-                    android.util.Log.e(TAG, "HTTP 重试仍失败（端口 ${settings.serverPort} 可能被占用）", e2)
+                    AppLogger.e(TAG, "HTTP 重试仍失败（端口 ${settings.serverPort} 可能被占用）", e2)
                     lastStartError = "HTTP 服务器启动失败（端口 ${settings.serverPort} 可能被占用）：\n${e2.stackTraceToString()}"
                 }
             }
@@ -139,7 +140,7 @@ class RouterService : Service() {
             startHealthCheck(healthChecker, settings)
             startNotificationUpdate()
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "服务启动流程异常（已捕获）", e)
+            AppLogger.e(TAG, "服务启动流程异常（已捕获）", e)
             lastStartError = "服务启动流程异常：\n${e.stackTraceToString()}"
         }
     }
@@ -156,7 +157,7 @@ class RouterService : Service() {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "读取设置超时/失败，退回默认端口 8080 继续启动", e)
+            AppLogger.w(TAG, "读取设置超时/失败，退回默认端口 8080 继续启动", e)
             lastStartError = "读取设置超时（已兜底默认端口 8080）：\n${e.stackTraceToString()}"
             SettingsSnapshot()
         }
@@ -164,7 +165,7 @@ class RouterService : Service() {
 
     private fun step(s: String) {
         lastStartStep = s
-        android.util.Log.i(TAG, s)
+        AppLogger.i(TAG, s)
     }
 
     // === 健康检查：HandlerThread 周期任务（原协程 while(isActive)+delay 迁移） ===
@@ -182,7 +183,7 @@ class RouterService : Service() {
                 try {
                     runBlocking { healthChecker.runHealthCheck() }
                 } catch (e: Exception) {
-                    android.util.Log.w(TAG, "健康检查异常（不影响服务）", e)
+                    AppLogger.w(TAG, "健康检查异常（不影响服务）", e)
                 }
                 handler.postDelayed(this, intervalMs)
             }
@@ -207,7 +208,7 @@ class RouterService : Service() {
                     val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
                     nm.notify(NOTIFICATION_ID, notification)
                 } catch (e: Exception) {
-                    android.util.Log.w(TAG, "通知更新失败（不影响服务）", e)
+                    AppLogger.w(TAG, "通知更新失败（不影响服务）", e)
                 }
                 notifyHandler?.postDelayed(this, 5_000)
             }
