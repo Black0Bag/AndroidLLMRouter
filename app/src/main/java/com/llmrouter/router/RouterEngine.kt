@@ -1,7 +1,10 @@
 package com.llmrouter.router
 
 import com.llmrouter.data.model.ChannelEntity
+import com.llmrouter.data.model.ModelGroupEntity
+import com.llmrouter.data.model.ModelGroupMember
 import com.llmrouter.data.repo.ChannelRepository
+import com.llmrouter.data.repo.ModelGroupRepository
 import com.llmrouter.data.repo.SettingsRepository
 import com.llmrouter.data.repo.SettingsSnapshot
 import kotlinx.coroutines.sync.Mutex
@@ -19,7 +22,8 @@ import kotlin.random.Random
  */
 class RouterEngine(
     private val channelRepository: ChannelRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val modelGroupRepository: ModelGroupRepository? = null
 ) {
     /** 内存缓存：model(小写) -> 渠道列表（按 priority 降序） */
     @Volatile
@@ -28,6 +32,14 @@ class RouterEngine(
     /** 全部启用渠道（按 priority 降序） */
     @Volatile
     private var allEnabledChannels: List<ChannelEntity> = emptyList()
+
+    /** v0.8.0: 模型组缓存 name(小写) -> ModelGroupEntity */
+    @Volatile
+    private var modelGroupCache: Map<String, ModelGroupEntity> = emptyMap()
+
+    /** v0.8.0: channelId -> ChannelEntity 快速查找 */
+    @Volatile
+    private var channelByIdCache: Map<Long, ChannelEntity> = emptyMap()
 
     /** 每个 channel 的 Key 轮换锁 */
     private val channelLocks = mutableMapOf<Long, Mutex>()
@@ -50,6 +62,26 @@ class RouterEngine(
             list.sortByDescending { it.priority }
         }
         channelCache = modelMap
+
+        // v0.8.0: 同时刷新 channelId 快速查找
+        channelByIdCache = channels.associateBy { it.id }
+
+        // v0.8.0: 刷新模型组缓存
+        refreshModelGroupCache()
+    }
+
+    /** v0.8.0: 刷新模型组缓存 */
+    private suspend fun refreshModelGroupCache() {
+        if (modelGroupRepository == null) {
+            modelGroupCache = emptyMap()
+            return
+        }
+        val groups = modelGroupRepository.getAllGroupsOnce()
+        val groupMap = mutableMapOf<String, ModelGroupEntity>()
+        for (g in groups) {
+            groupMap[g.name.lowercase().trim()] = g
+        }
+        modelGroupCache = groupMap
     }
 
     /**
@@ -188,6 +220,49 @@ class RouterEngine(
 
     /** 获取所有启用渠道 */
     fun getAllEnabledChannels(): List<ChannelEntity> = allEnabledChannels
+
+    // === v0.8.0: 模型组路由 ===
+
+    /**
+     * 检查请求的模型名是否匹配某个模型组
+     * @return 匹配的 ModelGroupEntity，或 null
+     */
+    fun findModelGroup(model: String): ModelGroupEntity? {
+        return modelGroupCache[model.lowercase().trim()]
+    }
+
+    /**
+     * 为模型组选择渠道+实际模型名
+     * @param model 请求的模型名（即模型组名）
+     * @param retry 重试次数（0=第一个成员，1=第二个…）
+     * @return Pair(渠道, 实际模型名)，或 null
+     */
+    fun selectChannelForGroup(model: String, retry: Int): Pair<ChannelEntity, String>? {
+        val group = findModelGroup(model) ?: return null
+        val members = group.memberList()
+        if (members.isEmpty()) return null
+
+        val memberIndex = retry.coerceAtMost(members.size - 1)
+        val member = members[memberIndex]
+
+        // 从缓存中查找对应渠道
+        val channel = channelByIdCache[member.channelId] ?: return null
+        if (channel.status != ChannelEntity.STATUS_ENABLED) return null
+
+        return channel to member.model
+    }
+
+    /**
+     * 获取模型组的成员数量（用于 RelayHandler 判断重试上限）
+     */
+    fun getModelGroupMemberCount(model: String): Int {
+        return findModelGroup(model)?.memberList()?.size ?: 0
+    }
+
+    /**
+     * 在 /v1/models 列表中附加模型组名
+     */
+    fun getModelGroupNames(): Set<String> = modelGroupCache.keys
 
     // === Key 状态序列化/反序列化 ===
 

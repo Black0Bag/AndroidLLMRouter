@@ -2,6 +2,7 @@ package com.llmrouter.data.db
 
 import androidx.room.*
 import com.llmrouter.data.model.ChannelEntity
+import com.llmrouter.data.model.ModelGroupEntity
 import com.llmrouter.data.model.RouteLogEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -94,3 +95,28 @@ data class ModelUsageStat(
     val cnt: Int,
     val tokens: Int?
 )
+
+@Dao
+interface ModelGroupDao {
+
+    @Query("SELECT * FROM model_groups ORDER BY createdAt DESC")
+    fun getAllGroups(): Flow<List<ModelGroupEntity>>
+
+    @Query("SELECT * FROM model_groups ORDER BY createdAt DESC")
+    suspend fun getAllGroupsOnce(): List<ModelGroupEntity>
+
+    @Query("SELECT * FROM model_groups WHERE id = :id")
+    suspend fun getGroupById(id: Long): ModelGroupEntity?
+
+    @Insert
+    suspend fun insert(group: ModelGroupEntity): Long
+
+    @Update
+    suspend fun update(group: ModelGroupEntity)
+
+    @Delete
+    suspend fun delete(group: ModelGroupEntity)
+
+    @Query("DELETE FROM model_groups WHERE id = :id")
+    suspend fun deleteById(id: Long)
+}

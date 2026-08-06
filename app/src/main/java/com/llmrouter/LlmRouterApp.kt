@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.llmrouter.data.db.AppDatabase
 import com.llmrouter.data.repo.ChannelRepository
+import com.llmrouter.data.repo.ModelGroupRepository
 import com.llmrouter.data.repo.SettingsRepository
 import com.llmrouter.service.RouterService
 import kotlinx.coroutines.runBlocking
@@ -17,6 +18,7 @@ class LlmRouterApp : Application() {
 
     val database by lazy { AppDatabase.getInstance(this) }
     val channelRepository by lazy { ChannelRepository(database.channelDao()) }
+    val modelGroupRepository by lazy { ModelGroupRepository(database.modelGroupDao()) }
     val settingsRepository by lazy { SettingsRepository(this) }
 
     override fun onCreate() {
@@ -25,7 +27,7 @@ class LlmRouterApp : Application() {
 
         // v0.7.1: 全局日志系统必须在所有其他操作之前初始化
         AppLogger.init(this)
-        AppLogger.i("LlmRouterApp", "onCreate 开始, version=0.7.2")
+        AppLogger.i("LlmRouterApp", "onCreate 开始, version=0.8.0")
 
         createNotificationChannel()
         AppLogger.i("LlmRouterApp", "通知渠道已创建")

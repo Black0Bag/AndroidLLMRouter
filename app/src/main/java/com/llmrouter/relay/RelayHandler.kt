@@ -7,12 +7,15 @@ import com.llmrouter.data.repo.SettingsRepository
 import com.llmrouter.data.repo.SettingsSnapshot
 import com.llmrouter.router.RouterEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
@@ -50,6 +53,7 @@ class RelayHandler(
 
     /**
      * 处理 /v1/chat/completions 请求
+     * v0.8.0: 支持模型组路由 + 流式 Token 捕获
      */
     suspend fun handleChatCompletions(
         requestBody: String,
@@ -57,6 +61,13 @@ class RelayHandler(
         stream: Boolean
     ): RelayResult = withContext(Dispatchers.IO) {
         val settings = settingsRepository.getSnapshot()
+
+        // v0.8.0: 检查是否匹配模型组
+        val modelGroup = routerEngine.findModelGroup(model)
+        if (modelGroup != null) {
+            return@withContext handleChatWithModelGroup(requestBody, model, stream, modelGroup)
+        }
+
         val maxRetries = settings.retryTimes
         var lastError = "未知错误"
         var lastStatusCode = 502
@@ -92,6 +103,25 @@ class RelayHandler(
                 requestBody
             }
 
+            // v0.8.0: 流式请求注入 stream_options.include_usage
+            val bodyWithUsage = if (stream) {
+                try {
+                    val json = JSONObject(finalBody)
+                    val streamOptions = json.optJSONObject("stream_options")
+                    if (streamOptions == null) {
+                        json.put("stream_options", JSONObject().put("include_usage", true))
+                    } else if (!streamOptions.optBoolean("include_usage", false)) {
+                        streamOptions.put("include_usage", true)
+                        json.put("stream_options", streamOptions)
+                    }
+                    json.toString()
+                } catch (e: Exception) {
+                    finalBody
+                }
+            } else {
+                finalBody
+            }
+
             try {
                 val startTime = System.currentTimeMillis()
                 val url = buildUrl(channel.baseUrl, "/v1/chat/completions")
@@ -100,7 +130,7 @@ class RelayHandler(
                     .url(url)
                     .header("Authorization", "Bearer $apiKey")
                     .header("Content-Type", "application/json")
-                    .post(finalBody.toRequestBody(jsonMedia))
+                    .post(bodyWithUsage.toRequestBody(jsonMedia))
                     .build()
 
                 if (stream) {
@@ -108,9 +138,19 @@ class RelayHandler(
                     val elapsed = (System.currentTimeMillis() - startTime).toInt()
 
                     if (response.isSuccessful && response.body != null) {
-                        logSuccess(model, channel, elapsed, "/v1/chat/completions", 200)
-                        channelRepository.incrementQuota(channel.id)
-                        return@withContext RelayResult.Stream(response.body!!.byteStream())
+                        // v0.8.0: 用 TokenCapturingInputStream 包装流，边透传边解析 usage
+                        val rawStream = response.body!!.byteStream()
+                        val channelRef = channel
+                        val modelRef = model
+                        val elapsedRef = elapsed
+                        val capturingStream = TokenCapturingInputStream(rawStream) { tokenInfo ->
+                            // 流结束后异步记录日志（含真实 Token）
+                            GlobalScope.launch(Dispatchers.IO) {
+                                logSuccess(modelRef, channelRef, elapsedRef, "/v1/chat/completions", 200, tokenInfo)
+                                channelRepository.incrementQuota(channelRef.id)
+                            }
+                        }
+                        return@withContext RelayResult.Stream(capturingStream)
                     } else {
                         val errorBody = response.body?.string() ?: ""
                         val code = response.code
@@ -155,6 +195,130 @@ class RelayHandler(
 
         // 记录失败日志
         logFailure(model, "/v1/chat/completions", lastError, maxRetries, lastStatusCode)
+        RelayResult.Error(lastError, lastStatusCode)
+    }
+
+    /**
+     * v0.8.0: 模型组路由处理
+     * 按用户定义的成员顺序逐个尝试，失败降级到下一个成员
+     */
+    private suspend fun handleChatWithModelGroup(
+        requestBody: String,
+        groupName: String,
+        stream: Boolean,
+        modelGroup: com.llmrouter.data.model.ModelGroupEntity
+    ): RelayResult = withContext(Dispatchers.IO) {
+        val settings = settingsRepository.getSnapshot()
+        val members = modelGroup.memberList()
+        if (members.isEmpty()) {
+            return@withContext RelayResult.Error("模型组 $groupName 没有成员")
+        }
+
+        var lastError = "未知错误"
+        var lastStatusCode = 502
+
+        for (retry in 0 until members.size) {
+            val result = routerEngine.selectChannelForGroup(groupName, retry)
+            if (result == null) {
+                lastError = "模型组 $groupName 的第 ${retry + 1} 个成员不可用"
+                continue
+            }
+
+            val (channel, actualModel) = result
+
+            val keyAndIndex = selectKeyWithIndex(channel)
+            if (keyAndIndex == null) {
+                lastError = "渠道 ${channel.name} 的所有密钥已被禁用"
+                continue
+            }
+
+            val (apiKey, keyIndex) = keyAndIndex
+
+            // 替换请求体中的 model 为成员指定的实际模型
+            val finalBody = try {
+                val json = JSONObject(requestBody)
+                json.put("model", actualModel)
+                // 流式请求注入 stream_options.include_usage
+                if (stream) {
+                    val streamOptions = json.optJSONObject("stream_options")
+                    if (streamOptions == null) {
+                        json.put("stream_options", JSONObject().put("include_usage", true))
+                    } else if (!streamOptions.optBoolean("include_usage", false)) {
+                        streamOptions.put("include_usage", true)
+                        json.put("stream_options", streamOptions)
+                    }
+                }
+                json.toString()
+            } catch (e: Exception) {
+                requestBody
+            }
+
+            try {
+                val startTime = System.currentTimeMillis()
+                val url = buildUrl(channel.baseUrl, "/v1/chat/completions")
+
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Content-Type", "application/json")
+                    .post(finalBody.toRequestBody(jsonMedia))
+                    .build()
+
+                if (stream) {
+                    val response = httpClient.newCall(request).execute()
+                    val elapsed = (System.currentTimeMillis() - startTime).toInt()
+
+                    if (response.isSuccessful && response.body != null) {
+                        val rawStream = response.body!!.byteStream()
+                        val channelRef = channel
+                        val groupRef = groupName
+                        val elapsedRef = elapsed
+                        val capturingStream = TokenCapturingInputStream(rawStream) { tokenInfo ->
+                            GlobalScope.launch(Dispatchers.IO) {
+                                logSuccess(groupRef, channelRef, elapsedRef, "/v1/chat/completions", 200, tokenInfo)
+                                channelRepository.incrementQuota(channelRef.id)
+                            }
+                        }
+                        return@withContext RelayResult.Stream(capturingStream)
+                    } else {
+                        val errorBody = response.body?.string() ?: ""
+                        val code = response.code
+                        lastStatusCode = channel.applyStatusCodeMapping(code)
+                        lastError = "上游错误 $code: ${errorBody.take(200)}"
+                        handleUpstreamError(channel, keyIndex, code, errorBody, settings)
+                        response.close()
+                        continue
+                    }
+                } else {
+                    val response = httpClient.newCall(request).execute()
+                    val elapsed = (System.currentTimeMillis() - startTime).toInt()
+                    val body = response.body?.string() ?: ""
+
+                    if (response.isSuccessful) {
+                        val tokenInfo = parseTokenUsage(body)
+                        logSuccess(groupName, channel, elapsed, "/v1/chat/completions", 200, tokenInfo)
+                        channelRepository.incrementQuota(channel.id)
+                        return@withContext RelayResult.Json(body)
+                    } else {
+                        lastStatusCode = channel.applyStatusCodeMapping(response.code)
+                        lastError = "上游错误 ${response.code}: ${body.take(200)}"
+                        handleUpstreamError(channel, keyIndex, response.code, body, settings)
+                        continue
+                    }
+                }
+            } catch (e: java.net.SocketTimeoutException) {
+                lastError = "请求超时: ${e.message}"
+                continue
+            } catch (e: java.net.ConnectException) {
+                lastError = "连接失败: ${e.message}"
+                continue
+            } catch (e: Exception) {
+                lastError = "请求异常: ${e.message ?: e.javaClass.simpleName}"
+                continue
+            }
+        }
+
+        logFailure(groupName, "/v1/chat/completions", lastError, members.size - 1, lastStatusCode)
         RelayResult.Error(lastError, lastStatusCode)
     }
 
@@ -232,7 +396,8 @@ class RelayHandler(
     }
 
     /**
-     * 处理 /v1/models 请求 — 聚合所有渠道的模型列表
+     * 处理 /v1/models 请求 — 聚合所有渠道的模型列表 + 模型组
+     * v0.8.0: 在列表中附加模型组名
      */
     suspend fun handleListModels(): RelayResult = withContext(Dispatchers.IO) {
         val channels = routerEngine.getAllEnabledChannels()
@@ -240,6 +405,9 @@ class RelayHandler(
         for (ch in channels) {
             models.addAll(ch.modelList())
         }
+
+        // v0.8.0: 附加模型组名
+        models.addAll(routerEngine.getModelGroupNames())
 
         val data = models.sorted().map { model ->
             JSONObject().apply {

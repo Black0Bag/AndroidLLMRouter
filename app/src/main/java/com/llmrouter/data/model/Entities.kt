@@ -2,6 +2,7 @@ package com.llmrouter.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -145,4 +146,72 @@ data class RouteLogEntity(
     val totalTokens: Int = 0,
     val statusCode: Int = 0,
     val apiEndpoint: String = ""
+)
+
+/**
+ * 模型组实体（v0.8.0 新增）
+ *
+ * 用户可创建自定义模型名（如 "smart"），然后从所有渠道的全部模型中
+ * 勾选参与路由的模型，并手动排序定义优先级。
+ *
+ * members 字段存储 JSON 有序数组：
+ * [{"channelId":1,"channelName":"阿里通义","model":"qwen-max"},
+ *  {"channelId":2,"channelName":"OpenAI","model":"gpt-4o"}]
+ * 数组顺序即路由优先级顺序。
+ */
+@Entity(tableName = "model_groups")
+data class ModelGroupEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val name: String,            // 自定义模型名，如 "smart"
+    val displayName: String = "",// 展示名，如 "智能优选"
+    val members: String = "[]",  // JSON 有序数组
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    /**
+     * 解析成员列表（有序）
+     * @return List<ModelGroupMember>
+     */
+    fun memberList(): List<ModelGroupMember> {
+        if (members.isBlank() || members == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(members)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                ModelGroupMember(
+                    channelId = obj.getLong("channelId"),
+                    channelName = obj.optString("channelName", ""),
+                    model = obj.getString("model")
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * 序列化成员列表为 JSON 字符串
+     */
+    companion object {
+        fun serializeMembers(members: List<ModelGroupMember>): String {
+            val arr = JSONArray()
+            for (m in members) {
+                val obj = JSONObject()
+                obj.put("channelId", m.channelId)
+                obj.put("channelName", m.channelName)
+                obj.put("model", m.model)
+                arr.put(obj)
+            }
+            return arr.toString()
+        }
+    }
+}
+
+/**
+ * 模型组成员（不入库，仅作 JSON 序列化/反序列化用）
+ */
+data class ModelGroupMember(
+    val channelId: Long,
+    val channelName: String,
+    val model: String
 )

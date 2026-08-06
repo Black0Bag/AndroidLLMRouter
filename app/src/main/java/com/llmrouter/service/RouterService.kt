@@ -93,7 +93,7 @@ class RouterService : Service() {
         try {
             step("1/6 初始化数据库与渠道仓库")
             val repo = app.channelRepository
-            val routerEngine = RouterEngine(repo, app.settingsRepository)
+            val routerEngine = RouterEngine(repo, app.settingsRepository, app.modelGroupRepository)
 
             step("2/6 刷新渠道缓存")
             runBlocking { routerEngine.refreshCache() }

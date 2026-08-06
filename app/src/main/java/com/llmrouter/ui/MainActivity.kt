@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -27,6 +28,8 @@ import com.llmrouter.R
 import com.llmrouter.ui.screens.ChannelEditScreen
 import com.llmrouter.ui.screens.ChannelListScreen
 import com.llmrouter.ui.screens.HomeScreen
+import com.llmrouter.ui.screens.ModelGroupEditScreen
+import com.llmrouter.ui.screens.ModelGroupListScreen
 import com.llmrouter.ui.screens.SettingsScreen
 import com.llmrouter.ui.theme.LlmRouterTheme
 
@@ -34,7 +37,9 @@ sealed class Screen(val route: String, val title: Int, val icon: androidx.compos
     data object Home : Screen("home", R.string.home_title, Icons.Filled.Dashboard)
     data object Channels : Screen("channels", R.string.channels, Icons.Filled.Storage)
     data object Settings : Screen("settings", R.string.settings, Icons.Filled.Settings)
+    data object ModelGroups : Screen("model_groups", R.string.model_groups, Icons.Filled.Category)
     data object ChannelEdit : Screen("channel_edit", R.string.edit_channel, Icons.Filled.Storage)
+    data object ModelGroupEdit : Screen("model_group_edit", R.string.edit_model_group, Icons.Filled.Category)
 }
 
 class MainActivity : ComponentActivity() {
@@ -68,7 +73,7 @@ fun MainApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val bottomNavItems = listOf(Screen.Home, Screen.Channels, Screen.Settings)
+    val bottomNavItems = listOf(Screen.Home, Screen.Channels, Screen.ModelGroups, Screen.Settings)
 
     Scaffold(
         topBar = {
@@ -81,7 +86,7 @@ fun MainApp() {
             )
         },
         bottomBar = {
-            if (currentRoute in listOf(Screen.Home.route, Screen.Channels.route, Screen.Settings.route)) {
+            if (currentRoute in listOf(Screen.Home.route, Screen.Channels.route, Screen.ModelGroups.route, Screen.Settings.route)) {
                 NavigationBar {
                     bottomNavItems.forEach { screen ->
                         NavigationBarItem(
@@ -134,6 +139,31 @@ fun MainApp() {
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(viewModel = viewModel)
+            }
+            composable(Screen.ModelGroups.route) {
+                ModelGroupListScreen(
+                    modelGroups = viewModel.modelGroups.collectAsState().value,
+                    onAddGroup = { navController.navigate("${Screen.ModelGroupEdit.route}?id=-1") },
+                    onEditGroup = { id -> navController.navigate("${Screen.ModelGroupEdit.route}?id=$id") },
+                    onDeleteGroup = { group -> viewModel.deleteModelGroup(group) }
+                )
+            }
+            composable(
+                "${Screen.ModelGroupEdit.route}?id={id}",
+                arguments = listOf(androidx.navigation.navArgument("id") { defaultValue = "-1" })
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("id")?.toLongOrNull() ?: -1L
+                val group = if (id > 0) viewModel.modelGroups.collectAsState().value.find { it.id == id } else null
+                val channels = viewModel.channels.collectAsState().value
+                ModelGroupEditScreen(
+                    group = group,
+                    channels = channels,
+                    onSave = { name, displayName, members ->
+                        viewModel.saveModelGroup(id, name, displayName, members)
+                        navController.popBackStack()
+                    },
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
     }

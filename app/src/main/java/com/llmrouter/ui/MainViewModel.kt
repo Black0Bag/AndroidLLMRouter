@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.llmrouter.AppLogger
 import com.llmrouter.LlmRouterApp
 import com.llmrouter.data.model.ChannelEntity
+import com.llmrouter.data.model.ModelGroupEntity
+import com.llmrouter.data.model.ModelGroupMember
 import com.llmrouter.data.repo.SettingsSnapshot
 import com.llmrouter.health.ChannelTestResult
 import com.llmrouter.health.HealthChecker
@@ -64,7 +66,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val app = application as LlmRouterApp
 
-    private val routerEngine = RouterEngine(app.channelRepository, app.settingsRepository)
+    private val routerEngine = RouterEngine(app.channelRepository, app.settingsRepository, app.modelGroupRepository)
     private val healthChecker = HealthChecker(routerEngine, app.channelRepository, app.settingsRepository)
 
     private val httpClient = OkHttpClient.Builder()
@@ -74,6 +76,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val channels: StateFlow<List<ChannelEntity>> =
         app.channelRepository.getAllChannels()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // v0.8.0: 模型组列表
+    val modelGroups: StateFlow<List<ModelGroupEntity>> =
+        app.modelGroupRepository.getAllGroups()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val settingsGroup1 = combine(
@@ -391,7 +398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         appendLine("========== 服务启动失败诊断 ==========")
                         appendLine("时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
                         appendLine("Android: ${android.os.Build.VERSION.SDK_INT}")
-                        appendLine("应用版本: 0.7.2")
+                        appendLine("应用版本: 0.8.0")
                         appendLine("目标端口: $port")
                         appendLine("活跃渠道数: ${channels.value.count { it.status == ChannelEntity.STATUS_ENABLED }}")
                         appendLine("通知权限: ${if (context.hasNotificationPermission()) "已授予" else "未授予"}")
@@ -600,6 +607,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 onResult(ImportResult(success = false, errorMessage = "${e.javaClass.simpleName}: ${e.message}"))
             }
+        }
+    }
+
+    // === v0.8.0: 模型组操作 ===
+
+    fun saveModelGroup(id: Long, name: String, displayName: String, members: List<ModelGroupMember>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (id > 0) {
+                // 更新
+                val existing = app.modelGroupRepository.getGroupById(id)
+                if (existing != null) {
+                    app.modelGroupRepository.update(
+                        existing.copy(
+                            name = name,
+                            displayName = displayName,
+                            members = ModelGroupEntity.serializeMembers(members)
+                        )
+                    )
+                }
+            } else {
+                // 新建
+                app.modelGroupRepository.insert(
+                    ModelGroupEntity(
+                        name = name,
+                        displayName = displayName,
+                        members = ModelGroupEntity.serializeMembers(members)
+                    )
+                )
+            }
+            // 刷新路由引擎缓存
+            routerEngine.refreshCache()
+        }
+    }
+
+    fun deleteModelGroup(group: ModelGroupEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            app.modelGroupRepository.delete(group)
+            routerEngine.refreshCache()
         }
     }
 }
