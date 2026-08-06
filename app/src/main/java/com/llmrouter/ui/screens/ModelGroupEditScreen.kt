@@ -92,7 +92,7 @@ fun ModelGroupEditScreen(
                     text = "请从下方列表勾选模型",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp, 0, 16.dp, 8.dp)
+                    modifier = Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp)
                 )
             } else {
                 LazyColumn(
@@ -167,7 +167,7 @@ fun ModelGroupEditScreen(
             Text(
                 text = "全部渠道模型（勾选参与此模型组的模型）",
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(16.dp, 0, 16.dp, 8.dp)
+                modifier = Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp)
             )
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
